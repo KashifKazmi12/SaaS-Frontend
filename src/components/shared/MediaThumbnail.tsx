@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { MediaImage } from "./MediaImage";
 
 interface MediaThumbnailProps {
   src: string;
@@ -14,7 +15,7 @@ export function MediaThumbnail({
   className,
 }: MediaThumbnailProps) {
   return (
-    <img
+    <MediaImage
       src={src}
       alt={alt}
       className={cn(

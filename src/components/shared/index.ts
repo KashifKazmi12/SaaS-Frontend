@@ -12,6 +12,7 @@ export { FieldHelp, FieldLabelWithHelp } from "./FieldHelp";
 export { EnumSelect } from "./EnumSelect";
 export type { EnumOption, EnumSelectProps } from "./EnumSelect";
 export { MediaThumbnail } from "./MediaThumbnail";
+export { MediaImage } from "./MediaImage";
 export { FileUploadField } from "./FileUploadField";
 export type { FileUploadFieldProps, UploadSizeGuide } from "./FileUploadField";
 export { ColorPickerField } from "./ColorPickerField";

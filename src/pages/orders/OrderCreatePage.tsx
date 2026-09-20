@@ -33,6 +33,7 @@ import {
   type CheckoutPaymentMethod,
 } from "@/constants/commerce";
 import { resolveMediaUrl } from "@/lib/media";
+import { MediaImage } from "@/components/shared/MediaImage";
 import { MODULE_PATHS } from "@/lib/modulePaths";
 import { formatMoney } from "@/lib/money";
 import type {
@@ -528,7 +529,11 @@ export default function OrderCreatePage() {
                         >
                           <div className="bg-muted flex size-16 items-center justify-center overflow-hidden rounded-lg border">
                             {imageSrc ? (
-                              <img src={imageSrc} alt="" className="size-full object-cover" />
+                              <MediaImage
+                                src={imageSrc}
+                                alt=""
+                                className="size-full object-cover"
+                              />
                             ) : (
                               <ImageIcon className="text-muted-foreground size-4" />
                             )}

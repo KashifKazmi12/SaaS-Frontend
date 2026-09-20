@@ -108,3 +108,38 @@ export function resolveCategoryImageUrl(imagePath?: string): string {
   if (!path) return DEFAULT_CATEGORY_IMAGE;
   return resolveMediaUrl(path);
 }
+
+/**
+ * Cross-origin S3/CDN URLs (especially SVG) need CORS mode so Chrome ORB
+ * does not block them in <img>. Same-origin /media paths stay unset.
+ */
+export function crossOriginForMediaUrl(src: string): "anonymous" | undefined {
+  if (/^https?:\/\//i.test(String(src || "").trim())) return "anonymous";
+  return undefined;
+}
+
+export function isSvgMediaUrl(src: string): boolean {
+  const value = String(src || "").trim().split("?")[0].split("#")[0];
+  return /\.svg$/i.test(value);
+}
+
+/** Strip scripts/handlers so inlined SVG from S3 cannot run JS. */
+export function sanitizeSvgMarkup(svg: string): string {
+  return String(svg || "")
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "")
+    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+    .replace(/javascript:/gi, "");
+}
+
+/** Fetch SVG text with CORS (requires S3 CORS). Used to bypass <img> ORB blocks. */
+export async function loadSvgMarkup(src: string): Promise<string> {
+  const response = await fetch(src, { mode: "cors", credentials: "omit" });
+  if (!response.ok) {
+    throw new Error(`SVG fetch failed (${response.status})`);
+  }
+  const text = await response.text();
+  if (!/<svg[\s>]/i.test(text)) {
+    throw new Error("Response is not SVG markup");
+  }
+  return sanitizeSvgMarkup(text);
+}

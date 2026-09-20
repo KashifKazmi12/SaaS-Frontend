@@ -6,6 +6,7 @@ import {
   resolveMediaUrl,
   type ProductImage,
 } from "@/lib/media";
+import { MediaImage } from "./MediaImage";
 import { FieldLabel } from "./FormField";
 import { Button } from "@/components/ui/button";
 import {
@@ -283,7 +284,7 @@ export function FileUploadField(props: FileUploadFieldProps) {
               key={image.path}
               className="group relative overflow-hidden rounded-lg border bg-muted/20"
             >
-              <img
+              <MediaImage
                 src={resolveMediaUrl(image.path)}
                 alt=""
                 className={cn("w-full object-cover", aspectClass)}

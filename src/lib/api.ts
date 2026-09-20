@@ -1,8 +1,8 @@
 import { buildQuery, type ListQueryParams } from "@/lib/queryString";
 import type { ListResponse, NamedOption } from "@/types";
 
-// Uses same-origin /api via Vite proxy in development
-const API_BASE = "/api";
+/** Local: `/api` (Vite proxy). Production: full backend URL, e.g. https://api.example.com/api */
+const API_BASE = String(import.meta.env.VITE_API_BASE_URL || "/api").replace(/\/$/, "");
 
 async function parseResponse<T>(response: Response): Promise<T> {
   const data = await response.json().catch(() => ({}));

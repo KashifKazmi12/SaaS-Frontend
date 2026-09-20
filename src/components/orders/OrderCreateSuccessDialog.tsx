@@ -66,28 +66,29 @@ export function OrderCreateSuccessDialog({
 
   if (!order) return null;
 
-  const currency = currencyFromGroup(order.businessGroup);
-  const customerName = customerNameFromOrder(order);
-  const payLabel = paymentMethodLabel(order.paymentMethod);
+  const createdOrder = order;
+  const currency = currencyFromGroup(createdOrder.businessGroup);
+  const customerName = customerNameFromOrder(createdOrder);
+  const payLabel = paymentMethodLabel(createdOrder.paymentMethod);
 
   function handlePrintReceipt() {
     void printOrderReceipt({
-      orderNumber: order.orderNumber,
+      orderNumber: createdOrder.orderNumber,
       customerName,
       paymentMethodLabel: payLabel,
       currency,
-      items: order.items.map((item) => ({
+      items: createdOrder.items.map((item) => ({
         name: item.name,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
         lineTotal: item.lineTotal,
       })),
-      subtotal: order.subtotal,
-      discountAmount: order.discountAmount || 0,
-      discountType: order.discountType,
-      discountValue: order.discountValue,
-      total: order.total,
-      createdAt: order.createdAt,
+      subtotal: createdOrder.subtotal,
+      discountAmount: createdOrder.discountAmount || 0,
+      discountType: createdOrder.discountType,
+      discountValue: createdOrder.discountValue,
+      total: createdOrder.total,
+      createdAt: createdOrder.createdAt,
       businessName,
       paymentUrl: hasCard ? checkoutUrl : null,
     });

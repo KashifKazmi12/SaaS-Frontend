@@ -121,7 +121,7 @@ export default function OrdersPage() {
               (order) =>
                 formatCustomListValue(
                   isEntityRootKey("order", field.key)
-                    ? (order as Record<string, unknown>)[field.key]
+                    ? (order as unknown as Record<string, unknown>)[field.key]
                     : order.custom?.[field.key],
                   field
                 )

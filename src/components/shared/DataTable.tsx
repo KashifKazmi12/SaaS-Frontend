@@ -29,6 +29,7 @@ export interface DataTableRowActions<T> {
   onDelete?: (row: T) => void;
   showView?: boolean;
   showEdit?: boolean;
+  showDelete?: boolean;
   hideDelete?: (row: T) => boolean;
   extraActions?: (row: T) => ReactNode;
 }
@@ -100,6 +101,7 @@ export function DataTable<T>({
                       onDelete={rowActions.onDelete ? () => rowActions.onDelete?.(row) : undefined}
                       showView={rowActions.showView}
                       showEdit={rowActions.showEdit}
+                      showDelete={rowActions.showDelete}
                       hideDelete={rowActions.hideDelete?.(row)}
                       extra={rowActions.extraActions?.(row)}
                     />

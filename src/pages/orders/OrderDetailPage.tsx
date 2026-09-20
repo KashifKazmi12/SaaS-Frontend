@@ -85,7 +85,7 @@ function orderFormValues(
     if (isEntityRootKey("order", field.key)) {
       values[field.key] =
         order && field.key in order
-          ? (order as Record<string, unknown>)[field.key]
+          ? (order as unknown as Record<string, unknown>)[field.key]
           : emptyFieldValue(field);
     } else {
       values[field.key] = order?.custom?.[field.key] ?? emptyFieldValue(field);
@@ -515,7 +515,7 @@ export default function OrderDetailPage() {
                           Paid remainder{" "}
                           <span className="text-foreground font-medium">
                             {formatMoney(
-                              order.refundToWalletAmount,
+                              order.refundToWalletAmount || 0,
                               currencyFromGroup(order.businessGroup)
                             )}
                           </span>{" "}

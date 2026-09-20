@@ -1,15 +1,23 @@
 import { useEffect, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
-import { ChevronDown, LayoutGrid, Building2, Package, Settings2, Bell } from "lucide-react";
+import { ChevronDown, LayoutGrid, LayoutDashboard, BarChart3, Building2, Package, Recycle, Settings2, Bell, Users, ShoppingBag, Warehouse, CreditCard } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
 const MODULE_ICONS: Record<string, typeof Package> = {
+  Dashboard: LayoutDashboard,
+  Reports: BarChart3,
   Businesses: Building2,
+  Catalog: Package,
   Products: Package,
+  Customers: Users,
+  Orders: ShoppingBag,
+  Stock: Warehouse,
+  "Recycle Bin": Recycle,
   Settings: Settings2,
   Notifications: Bell,
+  Payments: CreditCard,
 };
 
 export function Sidebar() {

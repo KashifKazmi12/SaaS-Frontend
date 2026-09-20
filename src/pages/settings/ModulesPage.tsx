@@ -7,13 +7,18 @@ import { RequirePermission } from "@/components/layout/RouteGuards";
 import {
   CrudDialog,
   DataTableCard,
+  FilterSelect,
   FormCheckboxField,
   FormField,
+  ListFilters,
+  ListPagination,
   PageAlerts,
   statusColumn,
   textColumn,
 } from "@/components/shared";
 import { useCrudPage } from "@/hooks/useCrudPage";
+import { useListQuery } from "@/hooks/useListQuery";
+import { ALL_FILTER, STATUS_FILTER_OPTIONS } from "@/lib/listFilters";
 import { MODULE_PATHS } from "@/lib/modulePaths";
 import type { ModuleRecord } from "@/types";
 
@@ -21,7 +26,11 @@ const MODULE_PATH = MODULE_PATHS.SETTINGS_MODULES;
 
 export default function ModulesPage() {
   const crud = useCrudPage<ModuleRecord>();
+  const list = useListQuery();
   const [modules, setModules] = useState<ModuleRecord[]>([]);
+  const [parentModules, setParentModules] = useState<ModuleRecord[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
   const [order, setOrder] = useState("0");
@@ -31,8 +40,7 @@ export default function ModulesPage() {
   function parentName(moduleItem: ModuleRecord) {
     if (!moduleItem.parent) return "—";
     if (typeof moduleItem.parent === "object") return moduleItem.parent.name;
-    const parent = modules.find((item) => item._id === moduleItem.parent);
-    return parent?.name || "—";
+    return "—";
   }
 
   const columns = useMemo(
@@ -46,18 +54,27 @@ export default function ModulesPage() {
       textColumn<ModuleRecord>("parent", "Parent", parentName),
       statusColumn<ModuleRecord>(),
     ],
-    [modules]
+    []
   );
 
   async function loadModules() {
     await crud.runLoad(async () => {
-      const data = await api.getModules();
-      setModules(data);
+      const data = await api.getModules(list.params);
+      setModules(data.items);
+      setTotal(data.total);
+      setTotalPages(data.totalPages);
+      if (data.items.length === 0 && data.total > 0 && list.page > 1) {
+        list.setPage(Math.max(1, data.totalPages));
+      }
     }, "Unable to load modules.");
   }
 
   useEffect(() => {
     loadModules();
+  }, [list.params]);
+
+  useEffect(() => {
+    api.getModuleOptions().then((data) => setParentModules(data.items)).catch(() => setParentModules([]));
   }, []);
 
   function resetForm() {
@@ -142,7 +159,43 @@ export default function ModulesPage() {
           loading={crud.loading}
           loadingMessage="Loading modules..."
           empty={!crud.loading && modules.length === 0}
-          emptyMessage="No modules yet."
+          emptyMessage={
+            list.activeCount > 0 ? "No modules match your filters." : "No modules yet."
+          }
+          filters={
+            <ListFilters
+              search={list.searchInput}
+              onSearchChange={list.setSearchInput}
+              searchPlaceholder="Search name or path..."
+              activeCount={list.activeCount}
+              onClear={list.clearFilters}
+            >
+              <FilterSelect
+                value={list.getFilter("type")}
+                onValueChange={(value) => list.setFilter("type", value)}
+                options={[
+                  { value: ALL_FILTER, label: "All types" },
+                  { value: "main", label: "Main section" },
+                  { value: "sub", label: "Sub section" },
+                ]}
+              />
+              <FilterSelect
+                value={list.getFilter("status")}
+                onValueChange={(value) => list.setFilter("status", value)}
+                options={STATUS_FILTER_OPTIONS}
+              />
+            </ListFilters>
+          }
+          pagination={
+            <ListPagination
+              page={list.page}
+              limit={list.limit}
+              total={total}
+              totalPages={totalPages}
+              onPageChange={list.setPage}
+              onLimitChange={list.setLimit}
+            />
+          }
           createLabel="Create module"
           onCreate={() => crud.startCreate(resetForm)}
         />
@@ -188,7 +241,7 @@ export default function ModulesPage() {
           />
           {isSubModule && (
             <ModuleParentSelect
-              modules={modules}
+              modules={parentModules}
               value={parentId}
               onValueChange={setParentId}
               required={isSubModule}

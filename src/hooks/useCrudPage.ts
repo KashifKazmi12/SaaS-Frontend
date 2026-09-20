@@ -109,5 +109,6 @@ export function useCrudPage<T>() {
     startCreate,
     startEdit,
     setMessage,
+    setError,
   };
 }

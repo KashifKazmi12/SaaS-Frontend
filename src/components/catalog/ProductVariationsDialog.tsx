@@ -19,6 +19,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { formatMoney } from "@/lib/money";
 import type { ProductVariationRecord, VariationDraft } from "@/types";
 import { normalizeVariationOptionType } from "@/constants/catalog";
 
@@ -57,6 +58,7 @@ interface ProductVariationsDialogProps {
   onOpenChange: (open: boolean) => void;
   productId: string | null;
   productName: string;
+  currency?: string;
   canEdit?: boolean;
   onUpdated?: () => void;
 }
@@ -66,6 +68,7 @@ export function ProductVariationsDialog({
   onOpenChange,
   productId,
   productName,
+  currency = "PKR",
   canEdit = true,
   onUpdated,
 }: ProductVariationsDialogProps) {
@@ -187,7 +190,7 @@ export function ProductVariationsDialog({
                       <TableCell className="font-medium">{variation.name}</TableCell>
                       <TableCell>{variation.sku}</TableCell>
                       <TableCell>{variation.barcode || "—"}</TableCell>
-                      <TableCell>${variation.price.toFixed(2)}</TableCell>
+                      <TableCell>{formatMoney(variation.price, currency)}</TableCell>
                       <TableCell className="max-w-xs text-xs text-muted-foreground">
                         {variation.options.map((option) => `${option.name}: ${option.value}`).join(" · ") ||
                           "—"}

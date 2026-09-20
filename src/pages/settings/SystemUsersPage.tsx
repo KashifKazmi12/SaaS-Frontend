@@ -8,15 +8,21 @@ import { RoleSelect } from "@/components/role";
 import {
   CrudDialog,
   DataTableCard,
+  FilterSelect,
   FormField,
+  ListFilters,
+  ListPagination,
   PageAlerts,
   statusColumn,
   textColumn,
 } from "@/components/shared";
 import { useCrudPage } from "@/hooks/useCrudPage";
+import { useListQuery } from "@/hooks/useListQuery";
+import { useRoleOptions } from "@/hooks/useRoleOptions";
 import { formatAssignedBusinesses } from "@/lib/business";
+import { ALL_FILTER, STATUS_FILTER_OPTIONS } from "@/lib/listFilters";
 import { MODULE_PATHS } from "@/lib/modulePaths";
-import type { RoleRecord, UserRecord } from "@/types";
+import type { UserRecord } from "@/types";
 
 const MODULE_PATH = MODULE_PATHS.SETTINGS_USERS;
 
@@ -27,8 +33,11 @@ function formatBusinesses(user: UserRecord) {
 
 export default function SystemUsersPage() {
   const crud = useCrudPage<UserRecord>();
+  const list = useListQuery();
+  const { options: roleOptions } = useRoleOptions();
   const [users, setUsers] = useState<UserRecord[]>([]);
-  const [roles, setRoles] = useState<RoleRecord[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -52,17 +61,21 @@ export default function SystemUsersPage() {
     []
   );
 
-  async function loadData() {
+  async function loadUsers() {
     await crud.runLoad(async () => {
-      const [usersData, rolesData] = await Promise.all([api.getUsers(), api.getRoles()]);
-      setUsers(usersData);
-      setRoles(rolesData);
+      const data = await api.getUsers(list.params);
+      setUsers(data.items);
+      setTotal(data.total);
+      setTotalPages(data.totalPages);
+      if (data.items.length === 0 && data.total > 0 && list.page > 1) {
+        list.setPage(Math.max(1, data.totalPages));
+      }
     }, "Unable to load users.");
   }
 
   useEffect(() => {
-    loadData();
-  }, []);
+    loadUsers();
+  }, [list.params]);
 
   function resetForm() {
     setName("");
@@ -109,7 +122,7 @@ export default function SystemUsersPage() {
       },
       {
         successMessage: crud.editing ? "User updated." : "User created.",
-        reload: loadData,
+        reload: loadUsers,
         fallbackError: "Unable to save user.",
       }
     );
@@ -123,7 +136,7 @@ export default function SystemUsersPage() {
       },
       {
         successMessage: "User removed.",
-        reload: loadData,
+        reload: loadUsers,
         fallbackError: "Unable to remove user.",
         canDelete: () => !user.isSuperAdmin,
       }
@@ -150,7 +163,44 @@ export default function SystemUsersPage() {
           loading={crud.loading}
           loadingMessage="Loading users..."
           empty={!crud.loading && users.length === 0}
-          emptyMessage="No users yet."
+          emptyMessage={list.activeCount > 0 ? "No users match your filters." : "No users yet."}
+          filters={
+            <ListFilters
+              search={list.searchInput}
+              onSearchChange={list.setSearchInput}
+              searchPlaceholder="Search name, username, or email..."
+              activeCount={list.activeCount}
+              onClear={list.clearFilters}
+            >
+              <FilterSelect
+                value={list.getFilter("roleId")}
+                onValueChange={(value) => list.setFilter("roleId", value)}
+                options={[
+                  { value: ALL_FILTER, label: "All roles" },
+                  { value: "superadmin", label: "Super Admin" },
+                  ...roleOptions.map((option) => ({
+                    value: option.id,
+                    label: option.name,
+                  })),
+                ]}
+              />
+              <FilterSelect
+                value={list.getFilter("status")}
+                onValueChange={(value) => list.setFilter("status", value)}
+                options={STATUS_FILTER_OPTIONS}
+              />
+            </ListFilters>
+          }
+          pagination={
+            <ListPagination
+              page={list.page}
+              limit={list.limit}
+              total={total}
+              totalPages={totalPages}
+              onPageChange={list.setPage}
+              onLimitChange={list.setLimit}
+            />
+          }
           createLabel="Add user"
           onCreate={() => crud.startCreate(resetForm)}
         />
@@ -201,7 +251,7 @@ export default function SystemUsersPage() {
           />
 
           {!crud.editing?.isSuperAdmin && (
-            <RoleSelect roles={roles} value={roleId} onValueChange={setRoleId} />
+            <RoleSelect value={roleId} onValueChange={setRoleId} />
           )}
 
           {!crud.editing?.isSuperAdmin && (

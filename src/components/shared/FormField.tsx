@@ -1,4 +1,7 @@
-import type { ComponentProps, ReactNode } from "react";
+import type { ReactNode } from "react";
+import { useState, type ComponentProps } from "react";
+import { Eye, EyeOff } from "lucide-react";
+import { FieldHelp } from "@/components/shared/FieldHelp";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,6 +30,9 @@ export function FieldLabel({ children, required, htmlFor, className }: FieldLabe
 interface FormFieldProps extends ComponentProps<typeof Input> {
   label: string;
   containerClassName?: string;
+  /** Short tooltip — only for fields that need explanation. */
+  help?: ReactNode;
+  helpLabel?: string;
 }
 
 export function FormField({
@@ -35,14 +41,43 @@ export function FormField({
   containerClassName,
   className,
   required,
+  type,
+  help,
+  helpLabel,
   ...inputProps
 }: FormFieldProps) {
+  const [visible, setVisible] = useState(false);
+  const isPassword = type === "password";
+  const inputType = isPassword ? (visible ? "text" : "password") : type;
+
   return (
     <div className={cn("space-y-2", containerClassName)}>
-      <FieldLabel htmlFor={id} required={required}>
-        {label}
-      </FieldLabel>
-      <Input id={id} className={className} required={required} {...inputProps} />
+      <div className="flex items-center gap-1.5">
+        <FieldLabel htmlFor={id} required={required}>
+          {label}
+        </FieldLabel>
+        {help ? <FieldHelp label={helpLabel || `About ${label}`}>{help}</FieldHelp> : null}
+      </div>
+      <div className={cn(isPassword && "relative")}>
+        <Input
+          id={id}
+          type={inputType}
+          className={cn(isPassword && "pr-9", className)}
+          required={required}
+          {...inputProps}
+        />
+        {isPassword ? (
+          <button
+            type="button"
+            className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-md"
+            onClick={() => setVisible((current) => !current)}
+            aria-label={visible ? "Hide password" : "Show password"}
+            tabIndex={-1}
+          >
+            {visible ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -54,6 +89,9 @@ interface FormCheckboxFieldProps {
   onCheckedChange: (checked: boolean) => void;
   className?: string;
   required?: boolean;
+  disabled?: boolean;
+  help?: ReactNode;
+  helpLabel?: string;
 }
 
 export function FormCheckboxField({
@@ -63,6 +101,9 @@ export function FormCheckboxField({
   onCheckedChange,
   className,
   required,
+  disabled,
+  help,
+  helpLabel,
 }: FormCheckboxFieldProps) {
   const fieldId = id ?? label.toLowerCase().replace(/\s+/g, "-");
 
@@ -71,11 +112,15 @@ export function FormCheckboxField({
       <Checkbox
         id={fieldId}
         checked={checked}
+        disabled={disabled}
         onCheckedChange={(value) => onCheckedChange(Boolean(value))}
       />
-      <FieldLabel htmlFor={fieldId} required={required}>
-        {label}
-      </FieldLabel>
+      <div className="flex items-center gap-1.5">
+        <FieldLabel htmlFor={fieldId} required={required}>
+          {label}
+        </FieldLabel>
+        {help ? <FieldHelp label={helpLabel || `About ${label}`}>{help}</FieldHelp> : null}
+      </div>
     </div>
   );
 }

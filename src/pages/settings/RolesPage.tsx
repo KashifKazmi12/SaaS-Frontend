@@ -7,15 +7,20 @@ import { RequirePermission } from "@/components/layout/RouteGuards";
 import {
   CrudDialog,
   DataTableCard,
+  FilterSelect,
   FormField,
+  ListFilters,
+  ListPagination,
   PageAlerts,
   textColumn,
 } from "@/components/shared";
 import { useCrudPage } from "@/hooks/useCrudPage";
+import { useListQuery } from "@/hooks/useListQuery";
 import {
   type PermissionDraftEntry,
   usePermissionDraft,
 } from "@/hooks/usePermissionDraft";
+import { STATUS_FILTER_OPTIONS } from "@/lib/listFilters";
 import { MODULE_PATHS } from "@/lib/modulePaths";
 import type { ModuleRecord, Permission, RoleRecord } from "@/types";
 
@@ -23,8 +28,11 @@ const MODULE_PATH = MODULE_PATHS.SETTINGS_ROLES;
 
 export default function RolesPage() {
   const crud = useCrudPage<RoleRecord>();
+  const list = useListQuery();
   const [roles, setRoles] = useState<RoleRecord[]>([]);
   const [allModules, setAllModules] = useState<ModuleRecord[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [permissionDraft, setPermissionDraft] = useState<PermissionDraftEntry[]>([]);
@@ -51,16 +59,24 @@ export default function RolesPage() {
     [permissionSummary]
   );
 
-  async function loadData() {
+  async function loadRoles() {
     await crud.runLoad(async () => {
-      const [rolesData, modulesData] = await Promise.all([api.getRoles(), api.getModules()]);
-      setRoles(rolesData);
-      setAllModules(modulesData);
+      const data = await api.getRoles(list.params);
+      setRoles(data.items);
+      setTotal(data.total);
+      setTotalPages(data.totalPages);
+      if (data.items.length === 0 && data.total > 0 && list.page > 1) {
+        list.setPage(Math.max(1, data.totalPages));
+      }
     }, "Unable to load roles.");
   }
 
   useEffect(() => {
-    loadData();
+    loadRoles();
+  }, [list.params]);
+
+  useEffect(() => {
+    api.getModuleOptions().then((data) => setAllModules(data.items)).catch(() => setAllModules([]));
   }, []);
 
   function resetForm() {
@@ -102,7 +118,7 @@ export default function RolesPage() {
       },
       {
         successMessage: crud.editing ? "Role updated." : "Role created.",
-        reload: loadData,
+        reload: loadRoles,
         fallbackError: "Unable to save role.",
       }
     );
@@ -116,7 +132,7 @@ export default function RolesPage() {
       },
       {
         successMessage: "Role removed.",
-        reload: loadData,
+        reload: loadRoles,
         fallbackError: "Unable to remove role.",
       }
     );
@@ -141,7 +157,32 @@ export default function RolesPage() {
           loading={crud.loading}
           loadingMessage="Loading roles..."
           empty={!crud.loading && roles.length === 0}
-          emptyMessage="No roles yet."
+          emptyMessage={list.activeCount > 0 ? "No roles match your filters." : "No roles yet."}
+          filters={
+            <ListFilters
+              search={list.searchInput}
+              onSearchChange={list.setSearchInput}
+              searchPlaceholder="Search roles..."
+              activeCount={list.activeCount}
+              onClear={list.clearFilters}
+            >
+              <FilterSelect
+                value={list.getFilter("status")}
+                onValueChange={(value) => list.setFilter("status", value)}
+                options={STATUS_FILTER_OPTIONS}
+              />
+            </ListFilters>
+          }
+          pagination={
+            <ListPagination
+              page={list.page}
+              limit={list.limit}
+              total={total}
+              totalPages={totalPages}
+              onPageChange={list.setPage}
+              onLimitChange={list.setLimit}
+            />
+          }
           createLabel="Create role"
           onCreate={() => crud.startCreate(resetForm)}
         />

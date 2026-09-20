@@ -21,6 +21,7 @@ interface PermissionIconButtonProps extends ButtonVariantProps {
   type?: "button" | "submit" | "reset";
   disabled?: boolean;
   className?: string;
+  tabIndex?: number;
 }
 
 export function PermissionIconButton({
@@ -34,6 +35,7 @@ export function PermissionIconButton({
   className,
   variant = "outline",
   size = "icon-sm",
+  tabIndex,
 }: PermissionIconButtonProps) {
   const { can } = useAuth();
 
@@ -51,6 +53,7 @@ export function PermissionIconButton({
             disabled={disabled}
             onClick={onClick}
             className={className}
+            tabIndex={tabIndex}
           />
         }
       >

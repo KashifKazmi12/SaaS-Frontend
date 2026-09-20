@@ -1,11 +1,12 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import {
   type BusinessOptionScope,
   useBusinessOptions,
-  useBusinessVisibility,
+  type BusinessOption,
 } from "@/hooks/useBusinessOptions";
 import { Input } from "@/components/ui/input";
 import { FieldLabel } from "@/components/shared/FormField";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -33,12 +34,16 @@ export interface BusinessSelectProps {
   hint?: string;
   placeholder?: string;
   className?: string;
+  triggerClassName?: string;
   id?: string;
-  /** When single assigned business: hide field, readonly input, or always show picker */
+  /** When one choice: hide field, show readonly, or always show picker */
   visibility?: BusinessSelectVisibility;
-  /** Prepended options (e.g. platform default for super admin) */
+  /** Prepended options (e.g. platform default / All branches) */
   extraOptions?: BusinessSelectExtraOption[];
+  /** When set, use these instead of loading from scope (e.g. businesses in one group). */
+  options?: BusinessOption[];
   required?: boolean;
+  triggerSize?: "sm" | "default";
 }
 
 export function BusinessSelect({
@@ -50,20 +55,29 @@ export function BusinessSelect({
   hint,
   placeholder = "Select business",
   className,
+  triggerClassName,
   id = "business-select",
-  visibility = "readonly-when-single",
+  visibility = "hide-when-single",
   extraOptions = [],
+  options: optionsProp,
   required = false,
+  triggerSize = "default",
 }: BusinessSelectProps) {
-  const { options, loading, error, getLabel } = useBusinessOptions(scope);
-  const { isSuperAdmin, assignedCount } = useBusinessVisibility();
+  const hooked = useBusinessOptions(scope);
+  const usingCustomOptions = Array.isArray(optionsProp);
+  const baseOptions = usingCustomOptions ? optionsProp : hooked.options;
+  const loading = usingCustomOptions ? false : hooked.loading;
+  const error = usingCustomOptions ? null : hooked.error;
+  const getLabel = usingCustomOptions
+    ? (idValue: string) => baseOptions.find((option) => option.id === idValue)?.name || ""
+    : hooked.getLabel;
 
   const mergedOptions = useMemo(() => {
     const extraIds = new Set(extraOptions.map((option) => option.value));
     const extras = extraOptions.map((option) => ({ id: option.value, name: option.label }));
-    const rest = options.filter((option) => !extraIds.has(option.id));
+    const rest = baseOptions.filter((option) => !extraIds.has(option.id));
     return [...extras, ...rest];
-  }, [extraOptions, options]);
+  }, [extraOptions, baseOptions]);
 
   const selectItems = useMemo(
     () => mergedOptions.map((option) => ({ value: option.id, label: option.name })),
@@ -76,35 +90,34 @@ export function BusinessSelect({
   );
 
   const displayName =
-    labelById[value] || getLabel(value) || options.find((option) => option.id === value)?.name || "";
+    labelById[value] || getLabel(value) || baseOptions.find((option) => option.id === value)?.name || "";
 
-  const hasMultipleChoices =
-    isSuperAdmin ||
-    scope === "all" ||
-    extraOptions.length > 0 ||
-    assignedCount > 1 ||
-    options.length > 1;
+  const choiceCount = mergedOptions.length;
+  // Exactly one option — hide/auto-select. Zero options must stay visible (e.g. pick group first).
+  const isSingleChoice = !loading && choiceCount === 1;
 
-  if (visibility === "hide-when-single" && !hasMultipleChoices) {
+  useEffect(() => {
+    if (loading || choiceCount !== 1) return;
+    const onlyId = mergedOptions[0].id;
+    if (value !== onlyId) onValueChange?.(onlyId);
+  }, [loading, choiceCount, mergedOptions, value, onValueChange]);
+
+  if (visibility === "hide-when-single" && isSingleChoice) {
     return null;
   }
 
   const showDropdown =
     !readOnly &&
     (visibility === "always" ||
-      isSuperAdmin ||
-      scope === "all" ||
-      extraOptions.length > 0 ||
-      assignedCount > 1 ||
-      options.length > 1);
+      visibility === "hide-when-single" ||
+      (visibility === "readonly-when-single" && choiceCount > 1));
 
   const showLabel = label.trim().length > 0;
-
-  const showRequiredMarker = required || (!readOnly && showDropdown);
+  const showRequiredMarker = required && showDropdown;
 
   return (
     <div className={className}>
-      <div className="space-y-2">
+      <div className={cn(showLabel || hint ? "space-y-2" : undefined)}>
         {showLabel && (
           <FieldLabel htmlFor={id} required={showRequiredMarker}>
             {label}
@@ -123,10 +136,8 @@ export function BusinessSelect({
             onValueChange={(nextValue) => onValueChange?.(nextValue ?? "")}
             items={selectItems}
           >
-            <SelectTrigger id={id} className="w-full">
-              <SelectValue placeholder={placeholder}>
-                {displayName || null}
-              </SelectValue>
+            <SelectTrigger id={id} size={triggerSize} className={cn("w-full", triggerClassName)}>
+              <SelectValue placeholder={placeholder}>{displayName || null}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               {mergedOptions.map((option) => (

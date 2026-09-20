@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { BusinessSelect } from "@/components/business";
+import { DynamicEntityFields } from "@/components/entity-fields/DynamicEntityFields";
 import {
   CategorySelect,
   createEmptyVariation,
@@ -16,17 +17,24 @@ import {
   CrudDialog,
   DataTableCard,
   FileUploadField,
+  FilterSelect,
   FormCheckboxField,
   FormField,
+  ListFilters,
+  ListPagination,
   PageAlerts,
   PermissionButton,
   PermissionIconButton,
+  imageColumn,
   statusColumn,
   textColumn,
 } from "@/components/shared";
 import { Layers } from "lucide-react";
-import { useBusinessVisibility } from "@/hooks/useBusinessOptions";
+import { useBusinessOptions, useBusinessVisibility } from "@/hooks/useBusinessOptions";
+import { resolveListBusinessId, useListSchemaFields } from "@/hooks/useListSchemaFields";
+import { useCategoryOptions } from "@/hooks/useCategoryOptions";
 import { useCrudPage } from "@/hooks/useCrudPage";
+import { useListQuery } from "@/hooks/useListQuery";
 import {
   getBusinessDisplayName,
   shouldSendBusinessIdOnCreate,
@@ -34,17 +42,53 @@ import {
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { MODULE_PATHS } from "@/lib/modulePaths";
+import { currencyFromBusiness, formatMoney } from "@/lib/money";
 import {
   PRODUCT_UNIT_LABELS,
   normalizeProductUnit,
   type ProductUnit,
 } from "@/constants/catalog";
 import { normalizeVariationOptionType } from "@/constants/catalog";
-import type { ProductRecord, ProductVariationRecord, VariationDraft } from "@/types";
+import {
+  buildEntityPayload,
+  formatCustomListValue,
+  isEntityRootKey,
+  isFieldVisible,
+} from "@/constants/entityFields";
+import type {
+  EntityFieldDefinition,
+  ProductRecord,
+  ProductVariationRecord,
+  VariationDraft,
+} from "@/types";
 import type { ProductImage } from "@/lib/media";
-import { normalizeProductImages } from "@/lib/media";
+import { ALL_FILTER, STATUS_FILTER_OPTIONS } from "@/lib/listFilters";
+import { getFeaturedImagePath, normalizeProductImages, resolveMediaUrl } from "@/lib/media";
 
 const MODULE_PATH = MODULE_PATHS.CATALOG_PRODUCTS;
+
+function productFormValues(product?: ProductRecord): Record<string, unknown> {
+  if (!product) {
+    return {
+      name: "",
+      description: "",
+      basePrice: "0",
+      costPrice: "0",
+      sku: "",
+      barcode: "",
+    };
+  }
+
+  return {
+    name: product.name || "",
+    description: product.description || "",
+    basePrice: String(product.basePrice ?? 0),
+    costPrice: String(product.costPrice ?? 0),
+    sku: product.sku || "",
+    barcode: product.barcode || "",
+    ...(product.custom || {}),
+  };
+}
 
 function getCategoryName(category: ProductRecord["category"]) {
   if (!category) return "—";
@@ -84,15 +128,15 @@ function draftToPayload(draft: VariationDraft) {
 
 export default function ProductsPage() {
   const { user } = useAuth();
-  const { isSuperAdmin, showBusinessColumn } = useBusinessVisibility();
+  const { isSuperAdmin, showBusinessColumn, singleAssignedBusiness } = useBusinessVisibility();
   const crud = useCrudPage<ProductRecord>();
+  const list = useListQuery();
   const [products, setProducts] = useState<ProductRecord[]>([]);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [basePrice, setBasePrice] = useState("0");
-  const [costPrice, setCostPrice] = useState("0");
-  const [sku, setSku] = useState("");
-  const [barcode, setBarcode] = useState("");
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [formValues, setFormValues] = useState<Record<string, unknown>>(productFormValues());
+  const [schemaFields, setSchemaFields] = useState<EntityFieldDefinition[]>([]);
+  const [schemaLoading, setSchemaLoading] = useState(false);
   const [unit, setUnit] = useState<ProductUnit>("piece");
   const [images, setImages] = useState<ProductImage[]>([]);
   const [categoryId, setCategoryId] = useState("");
@@ -103,6 +147,13 @@ export default function ProductsPage() {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [variationsDialogOpen, setVariationsDialogOpen] = useState(false);
   const [variationsProduct, setVariationsProduct] = useState<ProductRecord | null>(null);
+  const { options: businessOptions } = useBusinessOptions(isSuperAdmin ? "all" : "assigned");
+  const filterBusinessId = list.getFilter("businessId");
+  const listBusinessId = resolveListBusinessId(filterBusinessId, singleAssignedBusiness?.id);
+  const listCustomFields = useListSchemaFields("product", listBusinessId);
+  const { options: categoryOptions } = useCategoryOptions(
+    filterBusinessId === ALL_FILTER ? undefined : filterBusinessId
+  );
 
   function openVariationsDialog(product: ProductRecord) {
     setVariationsProduct(product);
@@ -111,6 +162,15 @@ export default function ProductsPage() {
 
   const columns = useMemo(
     () => [
+      imageColumn<ProductRecord>(
+        "image",
+        "Image",
+        (product) => {
+          const path = getFeaturedImagePath(normalizeProductImages(product.images));
+          return path ? resolveMediaUrl(path) : "";
+        },
+        { alt: (product) => product.name }
+      ),
       textColumn<ProductRecord>("name", "Name", (product) => product.name, { primary: true }),
       textColumn<ProductRecord>(
         "business",
@@ -136,34 +196,75 @@ export default function ProductsPage() {
       textColumn<ProductRecord>("barcode", "Barcode", (product) =>
         product.hasVariations ? "—" : product.barcode || "—"
       ),
-      textColumn<ProductRecord>("basePrice", "Price", (product) => `$${product.basePrice.toFixed(2)}`),
+      textColumn<ProductRecord>("basePrice", "Price", (product) =>
+        formatMoney(product.basePrice, currencyFromBusiness(product.business))
+      ),
       textColumn<ProductRecord>("unit", "Unit", (product) =>
         PRODUCT_UNIT_LABELS[normalizeProductUnit(product.unit)] || product.unit
       ),
+      ...listCustomFields.map((field) =>
+        textColumn<ProductRecord>(
+          `custom-${field.key}`,
+          field.label,
+          (product) => formatCustomListValue(product.custom?.[field.key], field)
+        )
+      ),
       statusColumn<ProductRecord>(),
     ],
-    [showBusinessColumn]
+    [listCustomFields, showBusinessColumn]
   );
 
   async function loadProducts() {
     await crud.runLoad(async () => {
-      const data = await api.getProducts();
-      setProducts(data);
+      const data = await api.getProducts(list.params);
+      setProducts(data.items);
+      setTotal(data.total);
+      setTotalPages(data.totalPages);
+      if (data.items.length === 0 && data.total > 0 && list.page > 1) {
+        list.setPage(Math.max(1, data.totalPages));
+      }
     }, "Unable to load products.");
   }
 
   useEffect(() => {
     loadProducts();
-  }, []);
+  }, [list.params]);
+
+  useEffect(() => {
+    if (!crud.dialogOpen || !businessId) {
+      setSchemaFields([]);
+      return;
+    }
+
+    let cancelled = false;
+    setSchemaLoading(true);
+    api
+      .getProductSchema(businessId)
+      .then((data) => {
+        if (!cancelled) setSchemaFields(data.fields);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          crud.setError(err instanceof Error ? err.message : "Unable to load product fields.");
+          setSchemaFields([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setSchemaLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [businessId, crud.dialogOpen]);
+
+  function updateField(key: string, value: unknown) {
+    setFormValues((current) => ({ ...current, [key]: value }));
+  }
 
   function resetForm() {
     const defaultBusiness = user?.businesses?.[0]?.id || "";
-    setName("");
-    setDescription("");
-    setBasePrice("0");
-    setCostPrice("0");
-    setSku("");
-    setBarcode("");
+    setFormValues(productFormValues());
     setUnit("piece");
     setImages([]);
     setCategoryId("");
@@ -174,12 +275,7 @@ export default function ProductsPage() {
   }
 
   async function populateForm(product: ProductRecord) {
-    setName(product.name);
-    setDescription(product.description);
-    setBasePrice(String(product.basePrice));
-    setCostPrice(String(product.costPrice));
-    setSku(product.sku);
-    setBarcode(product.barcode);
+    setFormValues(productFormValues(product));
     setUnit(normalizeProductUnit(product.unit || "piece"));
     setImages(normalizeProductImages(product.images));
     setCategoryId(
@@ -210,10 +306,10 @@ export default function ProductsPage() {
   function handleHasVariationsChange(next: boolean) {
     setHasVariations(next);
     if (next) {
-      setSku("");
-      setBarcode("");
+      updateField("sku", "");
+      updateField("barcode", "");
       if (variations.length === 0) {
-        setVariations([createEmptyVariation(basePrice)]);
+        setVariations([createEmptyVariation(String(formValues.basePrice || "0"))]);
       }
     }
   }
@@ -236,20 +332,25 @@ export default function ProductsPage() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
 
-    const payload: Record<string, unknown> = {
-      name,
-      description,
-      basePrice: Number(basePrice),
-      costPrice: Number(costPrice),
-      unit,
-      images,
-      categoryId: categoryId || null,
-      hasVariations,
-    };
+    if (schemaLoading || schemaFields.length === 0) {
+      crud.setError("Product fields are still loading.");
+      return;
+    }
 
-    if (!hasVariations) {
-      payload.sku = sku;
-      payload.barcode = barcode;
+    if (images.length === 0) {
+      crud.setError("At least one product image is required.");
+      return;
+    }
+
+    const payload = buildEntityPayload("product", { ...formValues, unit }, schemaFields);
+    payload.unit = unit;
+    payload.images = images;
+    payload.categoryId = categoryId || null;
+    payload.hasVariations = hasVariations;
+
+    if (hasVariations) {
+      delete payload.sku;
+      delete payload.barcode;
     }
 
     if (!crud.editing && shouldSendBusinessIdOnCreate(user)) {
@@ -293,8 +394,9 @@ export default function ProductsPage() {
     );
   }
 
-  function handleExport() {
-    const rows = products.map((item) => ({
+  async function handleExport() {
+    const data = await api.getProducts({ ...list.params, page: 1, limit: 100 });
+    const rows = data.items.map((item) => ({
       name: item.name,
       description: item.description,
       basePrice: item.basePrice,
@@ -363,7 +465,67 @@ export default function ProductsPage() {
           loading={crud.loading}
           loadingMessage="Loading products..."
           empty={!crud.loading && products.length === 0}
-          emptyMessage="No products yet."
+          emptyMessage={
+            list.activeCount > 0 ? "No products match your filters." : "No products yet."
+          }
+          filters={
+            <ListFilters
+              search={list.searchInput}
+              onSearchChange={list.setSearchInput}
+              searchPlaceholder="Search name, SKU, or barcode..."
+              activeCount={list.activeCount}
+              onClear={list.clearFilters}
+            >
+              {showBusinessColumn && (
+                <FilterSelect
+                  value={list.getFilter("businessId")}
+                  onValueChange={(value) => list.setFilter("businessId", value)}
+                  options={[
+                    { value: ALL_FILTER, label: "All businesses" },
+                    ...businessOptions.map((option) => ({
+                      value: option.id,
+                      label: option.name,
+                    })),
+                  ]}
+                />
+              )}
+              <FilterSelect
+                value={list.getFilter("categoryId")}
+                onValueChange={(value) => list.setFilter("categoryId", value)}
+                options={[
+                  { value: ALL_FILTER, label: "All categories" },
+                  ...categoryOptions.map((option) => ({
+                    value: option.id,
+                    label: option.name,
+                  })),
+                ]}
+              />
+              <FilterSelect
+                value={list.getFilter("hasVariations")}
+                onValueChange={(value) => list.setFilter("hasVariations", value)}
+                options={[
+                  { value: ALL_FILTER, label: "All types" },
+                  { value: "no", label: "Simple" },
+                  { value: "yes", label: "With variations" },
+                ]}
+              />
+              <FilterSelect
+                value={list.getFilter("status")}
+                onValueChange={(value) => list.setFilter("status", value)}
+                options={STATUS_FILTER_OPTIONS}
+              />
+            </ListFilters>
+          }
+          pagination={
+            <ListPagination
+              page={list.page}
+              limit={list.limit}
+              total={total}
+              totalPages={totalPages}
+              onPageChange={list.setPage}
+              onLimitChange={list.setLimit}
+            />
+          }
           createLabel="Add product"
           onCreate={() => crud.startCreate(resetForm)}
           headerActions={
@@ -400,42 +562,23 @@ export default function ProductsPage() {
             onValueChange={setCategoryId}
           />
 
-          <FormField
-            id="product-name"
-            label="Name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-          <FormField
-            id="product-description"
-            label="Description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <FormField
-              id="product-base-price"
-              label="Base price"
-              type="number"
-              min="0"
-              step="0.01"
-              value={basePrice}
-              onChange={(e) => setBasePrice(e.target.value)}
-              required
-            />
-            <FormField
-              id="product-cost-price"
-              label="Cost price"
-              type="number"
-              min="0"
-              step="0.01"
-              value={costPrice}
-              onChange={(e) => setCostPrice(e.target.value)}
-            />
-            <UnitSelect value={unit} onValueChange={setUnit} required />
-          </div>
+          {schemaLoading ? (
+            <p className="text-sm text-muted-foreground">Loading fields...</p>
+          ) : businessId && schemaFields.length > 0 ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <DynamicEntityFields
+                fields={schemaFields.filter((field) =>
+                  ["name", "description", "basePrice", "costPrice"].includes(field.key)
+                )}
+                values={formValues}
+                onChange={updateField}
+                idPrefix="product"
+              />
+              <UnitSelect value={unit} onValueChange={setUnit} required />
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Select a business to see its product fields.</p>
+          )}
 
           <FileUploadField
             id="product-images"
@@ -445,7 +588,12 @@ export default function ProductsPage() {
             value={images}
             onChange={setImages}
             maxFiles={8}
-            hint="Upload multiple images. Star one image to mark it as the featured image."
+            required
+            recommendedSize={{
+              width: 800,
+              height: 800,
+              tip: "Images near this square size display best. Previews use cover crop — very wide or tall photos may be cropped on the sides or top/bottom. Star one image as featured.",
+            }}
           />
 
           <FormCheckboxField
@@ -469,19 +617,23 @@ export default function ProductsPage() {
 
           {!hasVariations ? (
             <div className="grid gap-4 sm:grid-cols-2">
-              <FormField
-                id="product-sku"
-                label="SKU"
-                value={sku}
-                onChange={(e) => setSku(e.target.value)}
-                required
-              />
-              <FormField
-                id="product-barcode"
-                label="Barcode"
-                value={barcode}
-                onChange={(e) => setBarcode(e.target.value)}
-              />
+              {isFieldVisible(schemaFields, "sku") && (
+                <FormField
+                  id="product-sku"
+                  label="SKU"
+                  value={String(formValues.sku || "")}
+                  onChange={(e) => updateField("sku", e.target.value)}
+                  required
+                />
+              )}
+              {isFieldVisible(schemaFields, "barcode") && (
+                <FormField
+                  id="product-barcode"
+                  label="Barcode"
+                  value={String(formValues.barcode || "")}
+                  onChange={(e) => updateField("barcode", e.target.value)}
+                />
+              )}
             </div>
           ) : loadingDetail && crud.editing ? (
             <p className="text-sm text-muted-foreground">Loading variations...</p>
@@ -492,6 +644,17 @@ export default function ProductsPage() {
               disabled={loadingDetail}
             />
           )}
+
+          {schemaFields.some((field) => !isEntityRootKey("product", field.key) && field.visible) && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <DynamicEntityFields
+                fields={schemaFields.filter((field) => !isEntityRootKey("product", field.key))}
+                values={formValues}
+                onChange={updateField}
+                idPrefix="product-custom"
+              />
+            </div>
+          )}
         </CrudDialog>
 
         <ProductVariationsDialog
@@ -499,6 +662,7 @@ export default function ProductsPage() {
           onOpenChange={setVariationsDialogOpen}
           productId={variationsProduct?._id ?? null}
           productName={variationsProduct?.name ?? "Product"}
+          currency={currencyFromBusiness(variationsProduct?.business)}
           onUpdated={loadProducts}
         />
       </PageShell>

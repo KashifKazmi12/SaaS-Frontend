@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
-import type { CategoryRecord } from "@/types";
 
 export function useCategoryOptions(businessId?: string) {
-  const [categories, setCategories] = useState<CategoryRecord[]>([]);
+  const [options, setOptions] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -13,14 +12,16 @@ export function useCategoryOptions(businessId?: string) {
     setError(null);
 
     api
-      .getCategories()
+      .getCategoryOptions(businessId)
       .then((data) => {
-        if (!cancelled) setCategories(data);
+        if (!cancelled) {
+          setOptions(data.items.map((category) => ({ id: category._id, name: category.name })));
+        }
       })
       .catch((err) => {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Unable to load categories.");
-          setCategories([]);
+          setOptions([]);
         }
       })
       .finally(() => {
@@ -30,33 +31,15 @@ export function useCategoryOptions(businessId?: string) {
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  const options = useMemo(() => {
-    const active = categories.filter((category) => category.isActive);
-    if (!businessId) return active;
-
-    return active.filter((category) => {
-      const id =
-        typeof category.business === "object" && category.business
-          ? category.business._id
-          : typeof category.business === "string"
-            ? category.business
-            : "";
-      return id === businessId;
-    });
-  }, [categories, businessId]);
+  }, [businessId]);
 
   const labelById = useMemo(
-    () =>
-      Object.fromEntries(
-        options.map((category) => [category._id, category.name])
-      ),
+    () => Object.fromEntries(options.map((category) => [category.id, category.name])),
     [options]
   );
 
   return {
-    options: options.map((category) => ({ id: category._id, name: category.name })),
+    options,
     loading,
     error,
     labelById,

@@ -29,10 +29,10 @@ export function useRoleOptions({ roles: externalRoles }: UseRoleOptionsParams = 
     setError(null);
 
     api
-      .getRoles()
+      .getRoleOptions()
       .then((data) => {
         if (cancelled) return;
-        setFetchedRoles(data.map((role) => ({ id: role._id, name: role.name })));
+        setFetchedRoles(data.items.map((role) => ({ id: role._id, name: role.name })));
       })
       .catch((err) => {
         if (cancelled) return;

@@ -22,6 +22,8 @@ interface DataTableCardProps<T> {
   createLabel?: string;
   onCreate?: () => void;
   headerActions?: ReactNode;
+  filters?: ReactNode;
+  pagination?: ReactNode;
 }
 
 export function DataTableCard<T>({
@@ -38,6 +40,8 @@ export function DataTableCard<T>({
   createLabel,
   onCreate,
   headerActions,
+  filters,
+  pagination,
 }: DataTableCardProps<T>) {
   const showHeaderActions = Boolean(headerActions || (createLabel && onCreate));
 
@@ -58,18 +62,35 @@ export function DataTableCard<T>({
           </CardAction>
         )}
       </CardHeader>
+
+      {filters && (
+        <div className="border-b bg-muted/20 px-(--card-spacing) py-3">{filters}</div>
+      )}
+
       <CardContent className="pt-4">
         {loading ? (
-          <p className="text-sm text-muted-foreground">{loadingMessage}</p>
+          <>
+            <span className="sr-only">{loadingMessage}</span>
+            <DataTable
+              columns={columns}
+              data={data}
+              getRowId={getRowId}
+              rowActions={rowActions}
+              loading
+            />
+          </>
         ) : empty ? (
           <p className="text-sm text-muted-foreground">{emptyMessage}</p>
         ) : (
-          <DataTable
-            columns={columns}
-            data={data}
-            getRowId={getRowId}
-            rowActions={rowActions}
-          />
+          <>
+            <DataTable
+              columns={columns}
+              data={data}
+              getRowId={getRowId}
+              rowActions={rowActions}
+            />
+            {pagination}
+          </>
         )}
       </CardContent>
     </Card>

@@ -7,7 +7,7 @@ import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { FieldLabel } from "@/components/shared/FormField";
+import { FieldLabel, FormField } from "@/components/shared/FormField";
 import { Input } from "@/components/ui/input";
 
 export default function LoginPage() {
@@ -74,19 +74,15 @@ export default function LoginPage() {
                 />
               </div>
 
-              <div className="space-y-2">
-                <FieldLabel htmlFor="password" required>
-                  Password
-                </FieldLabel>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="current-password"
-                  required
-                />
-              </div>
+              <FormField
+                id="password"
+                label="Password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
 
               <Button type="submit" className="w-full" disabled={submitting}>
                 {submitting ? "Signing in..." : "Sign in"}

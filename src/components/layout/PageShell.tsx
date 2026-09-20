@@ -1,20 +1,28 @@
 import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
 export function PageShell({
   title,
   description,
   children,
   action,
+  compact = false,
 }: {
   title?: string;
   description?: string;
   children: ReactNode;
   action?: ReactNode;
+  compact?: boolean;
 }) {
   return (
-    <div className="space-y-6">
+    <div className={cn(compact ? "space-y-3" : "space-y-6")}>
       {(title || description || action) && (
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div
+          className={cn(
+            "flex flex-col sm:flex-row sm:items-center sm:justify-between",
+            compact ? "gap-2" : "gap-4 sm:items-start"
+          )}
+        >
           <div>
             {title && <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>}
             {description && (

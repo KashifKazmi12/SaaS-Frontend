@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, type DragEvent } from "react";
-import { ImagePlus, Loader2, Star, Trash2, Upload } from "lucide-react";
+import { CircleHelp, ImagePlus, Loader2, Star, Trash2, Upload } from "lucide-react";
 import { api } from "@/lib/api";
 import {
   normalizeProductImages,
@@ -17,6 +17,15 @@ import { cn } from "@/lib/utils";
 
 const DEFAULT_ACCEPT = "image/jpeg,image/png,image/webp,image/gif";
 
+export interface UploadSizeGuide {
+  /** Recommended pixel width shown in the tooltip. */
+  width: number;
+  /** Recommended pixel height shown in the tooltip. */
+  height: number;
+  /** Extra guidance in the tooltip only (crop / cover notes, etc.). */
+  tip?: string;
+}
+
 interface FileUploadFieldBaseProps {
   id: string;
   label: string;
@@ -27,7 +36,10 @@ interface FileUploadFieldBaseProps {
   maxFiles?: number;
   deleteOnRemove?: boolean;
   className?: string;
+  /** @deprecated Prefer `recommendedSize` tooltip for dimension guidance. */
   hint?: string;
+  /** Recommended dimensions — shown via a ? icon tooltip next to the label. */
+  recommendedSize?: UploadSizeGuide;
 }
 
 interface SingleFileUploadFieldProps extends FileUploadFieldBaseProps {
@@ -51,6 +63,19 @@ function isMultipleProps(props: FileUploadFieldProps): props is MultipleFileUplo
   return props.mode === "multiple";
 }
 
+function previewAspectClass(guide: UploadSizeGuide | undefined, isMultiple: boolean) {
+  if (!guide) {
+    return isMultiple ? "aspect-square" : "aspect-video max-h-48";
+  }
+  if (guide.width === guide.height) {
+    return "aspect-square";
+  }
+  if (guide.width > guide.height) {
+    return "aspect-video max-h-48";
+  }
+  return "aspect-[3/4] max-h-56";
+}
+
 export function FileUploadField(props: FileUploadFieldProps) {
   const {
     id,
@@ -63,6 +88,7 @@ export function FileUploadField(props: FileUploadFieldProps) {
     deleteOnRemove = false,
     className,
     hint,
+    recommendedSize,
   } = props;
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -80,6 +106,7 @@ export function FileUploadField(props: FileUploadFieldProps) {
 
   const canAddMore = isMultiple ? images.length < maxFiles : images.length === 0;
   const isUploading = uploadingCount > 0;
+  const aspectClass = previewAspectClass(recommendedSize, isMultiple);
 
   const setSingleValue = useCallback(
     (path: string) => {
@@ -211,15 +238,44 @@ export function FileUploadField(props: FileUploadFieldProps) {
 
   return (
     <div className={cn("space-y-2", className)}>
-      <FieldLabel htmlFor={id} required={required}>{label}</FieldLabel>
+      <div className="flex items-center gap-1.5">
+        <FieldLabel htmlFor={id} required={required}>
+          {label}
+        </FieldLabel>
+        {recommendedSize ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                  aria-label="Recommended image size"
+                />
+              }
+            >
+              <CircleHelp className="size-3.5" />
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-64 text-pretty leading-relaxed">
+              <p>
+                Recommended size:{" "}
+                <span className="font-semibold">
+                  {recommendedSize.width} × {recommendedSize.height} px
+                </span>
+                {recommendedSize.width === recommendedSize.height ? " (square)." : "."}
+              </p>
+              {recommendedSize.tip ? <p className="mt-1 opacity-95">{recommendedSize.tip}</p> : null}
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
+      </div>
 
-      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
 
       {images.length > 0 && (
         <div
           className={cn(
             "grid gap-3",
-            isMultiple ? "grid-cols-2 sm:grid-cols-3" : "grid-cols-1"
+            isMultiple ? "grid-cols-2 sm:grid-cols-3" : "grid-cols-1 max-w-xs"
           )}
         >
           {images.map((image) => (
@@ -230,10 +286,7 @@ export function FileUploadField(props: FileUploadFieldProps) {
               <img
                 src={resolveMediaUrl(image.path)}
                 alt=""
-                className={cn(
-                  "w-full object-cover",
-                  isMultiple ? "aspect-square" : "aspect-video max-h-48"
-                )}
+                className={cn("w-full object-cover", aspectClass)}
               />
 
               <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-gradient-to-t from-black/70 to-transparent p-2">

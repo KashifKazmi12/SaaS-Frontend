@@ -1,5 +1,6 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import { PageLoader } from "@/components/shared";
 import type { Permission } from "@/types";
 
 export function RequirePermission({
@@ -14,7 +15,7 @@ export function RequirePermission({
   const { can, loading } = useAuth();
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading...</p>;
+    return <PageLoader />;
   }
 
   if (!can(path, action)) {
@@ -35,16 +36,12 @@ export function GuestRoute({ children }: { children: React.ReactNode }) {
   const { user, loading, navigation } = useAuth();
 
   if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
-        Loading...
-      </div>
-    );
+    return <PageLoader fullScreen />;
   }
 
   if (user) {
     const firstPath =
-      navigation[0]?.children[0]?.path || navigation[0]?.path || "/catalog/products";
+      navigation[0]?.children[0]?.path || navigation[0]?.path || "/dashboard";
     return <Navigate to={firstPath} replace />;
   }
 

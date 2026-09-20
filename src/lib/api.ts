@@ -1,3 +1,6 @@
+import { buildQuery, type ListQueryParams } from "@/lib/queryString";
+import type { ListResponse, NamedOption } from "@/types";
+
 // Uses same-origin /api via Vite proxy in development
 const API_BASE = "/api";
 
@@ -63,7 +66,11 @@ export const api = {
       }
     ),
 
-  getModules: () => request<import("@/types").ModuleRecord[]>("/modules"),
+  getModules: (params?: ListQueryParams) =>
+    request<ListResponse<import("@/types").ModuleRecord>>(`/modules${buildQuery(params)}`),
+
+  getModuleOptions: () =>
+    request<{ items: import("@/types").ModuleRecord[] }>("/modules/options"),
 
   createModule: (payload: Record<string, unknown>) =>
     request<import("@/types").ModuleRecord>("/modules", {
@@ -80,7 +87,10 @@ export const api = {
   deleteModule: (id: string) =>
     request<{ message: string }>(`/modules/${id}`, { method: "DELETE" }),
 
-  getRoles: () => request<import("@/types").RoleRecord[]>("/roles"),
+  getRoles: (params?: ListQueryParams) =>
+    request<ListResponse<import("@/types").RoleRecord>>(`/roles${buildQuery(params)}`),
+
+  getRoleOptions: () => request<{ items: NamedOption[] }>("/roles/options"),
 
   createRole: (payload: Record<string, unknown>) =>
     request<import("@/types").RoleRecord>("/roles", {
@@ -97,7 +107,8 @@ export const api = {
   deleteRole: (id: string) =>
     request<{ message: string }>(`/roles/${id}`, { method: "DELETE" }),
 
-  getUsers: () => request<import("@/types").UserRecord[]>("/users"),
+  getUsers: (params?: ListQueryParams) =>
+    request<ListResponse<import("@/types").UserRecord>>(`/users${buildQuery(params)}`),
 
   createUser: (payload: Record<string, unknown>) =>
     request<import("@/types").UserRecord>("/users", {
@@ -114,7 +125,15 @@ export const api = {
   deleteUser: (id: string) =>
     request<{ message: string }>(`/users/${id}`, { method: "DELETE" }),
 
-  getBusinessGroups: () => request<import("@/types").BusinessGroupRecord[]>("/business-groups"),
+  getBusinessGroups: (params?: ListQueryParams) =>
+    request<ListResponse<import("@/types").BusinessGroupRecord>>(
+      `/business-groups${buildQuery(params)}`
+    ),
+
+  getBusinessGroupOptions: () => request<{ items: NamedOption[] }>("/business-groups/options"),
+
+  getBusinessGroup: (id: string) =>
+    request<import("@/types").BusinessGroupRecord>(`/business-groups/${id}`),
 
   createBusinessGroup: (payload: Record<string, unknown>) =>
     request<import("@/types").BusinessGroupRecord>("/business-groups", {
@@ -131,7 +150,12 @@ export const api = {
   deleteBusinessGroup: (id: string) =>
     request<{ message: string }>(`/business-groups/${id}`, { method: "DELETE" }),
 
-  getBusinesses: () => request<import("@/types").BusinessRecord[]>("/businesses"),
+  getBusinesses: (params?: ListQueryParams) =>
+    request<ListResponse<import("@/types").BusinessRecord>>(`/businesses${buildQuery(params)}`),
+
+  getBusinessOptions: () => request<{ items: NamedOption[] }>("/businesses/options"),
+
+  getBusiness: (id: string) => request<import("@/types").BusinessRecord>(`/businesses/${id}`),
 
   createBusiness: (payload: Record<string, unknown>) =>
     request<import("@/types").BusinessRecord>("/businesses", {
@@ -148,7 +172,26 @@ export const api = {
   deleteBusiness: (id: string) =>
     request<{ message: string }>(`/businesses/${id}`, { method: "DELETE" }),
 
-  getProducts: () => request<import("@/types").ProductRecord[]>("/products"),
+  getBusinessEntitySchema: (businessId: string, entity: import("@/types").EntitySchemaEntity) =>
+    request<import("@/types").EntitySchemaRecord>(`/businesses/${businessId}/schemas/${entity}`),
+
+  updateBusinessEntitySchema: (
+    businessId: string,
+    entity: import("@/types").EntitySchemaEntity,
+    payload: { fields?: import("@/types").EntityFieldDefinition[]; presetKey?: string }
+  ) =>
+    request<import("@/types").EntitySchemaRecord>(`/businesses/${businessId}/schemas/${entity}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
+  getProducts: (params?: ListQueryParams) =>
+    request<ListResponse<import("@/types").ProductRecord>>(`/products${buildQuery(params)}`),
+
+  getProductSchema: (businessId: string, surface?: "admin" | "customerApp") =>
+    request<import("@/types").EntitySchemaRecord>(
+      `/products/schema${buildQuery({ businessId, surface })}`
+    ),
 
   getProduct: (id: string) => request<import("@/types").ProductDetailResponse>(`/products/${id}`),
 
@@ -191,7 +234,18 @@ export const api = {
       method: "DELETE",
     }),
 
-  getCategories: () => request<import("@/types").CategoryRecord[]>("/categories"),
+  getCategories: (params?: ListQueryParams) =>
+    request<ListResponse<import("@/types").CategoryRecord>>(`/categories${buildQuery(params)}`),
+
+  getCategorySchema: (businessId: string, surface?: "admin" | "customerApp") =>
+    request<import("@/types").EntitySchemaRecord>(
+      `/categories/schema${buildQuery({ businessId, surface })}`
+    ),
+
+  getCategoryOptions: (businessId?: string) =>
+    request<{ items: Array<NamedOption & { business?: string }> }>(
+      `/categories/options${buildQuery({ businessId })}`
+    ),
 
   createCategory: (payload: Record<string, unknown>) =>
     request<import("@/types").CategoryRecord>("/categories", {
@@ -207,6 +261,145 @@ export const api = {
 
   deleteCategory: (id: string) =>
     request<{ message: string }>(`/categories/${id}`, { method: "DELETE" }),
+
+  getCustomers: (params?: ListQueryParams) =>
+    request<ListResponse<import("@/types").CustomerRecord>>(`/customers${buildQuery(params)}`),
+
+  getCustomerSchema: (groupId: string, surface?: "admin" | "customerApp") =>
+    request<import("@/types").EntitySchemaRecord>(
+      `/customers/schema${buildQuery({ groupId, surface })}`
+    ),
+
+  getCustomerGroupOptions: () =>
+    request<{ items: NamedOption[] }>("/customers/group-options"),
+
+  getCustomerOptions: (groupId?: string) =>
+    request<{ items: Array<NamedOption & { phone?: string; email?: string; businessGroup?: string }> }>(
+      `/customers/options${buildQuery({ groupId })}`
+    ),
+
+  getCustomer: (id: string) =>
+    request<import("@/types").CustomerRecord>(`/customers/${id}`),
+
+  getCustomerOrders: (id: string, params?: ListQueryParams) =>
+    request<ListResponse<import("@/types").OrderRecord>>(
+      `/customers/${id}/orders${buildQuery(params)}`
+    ),
+
+  getCustomerWalletLedger: (id: string, params?: ListQueryParams) =>
+    request<
+      ListResponse<import("@/types").CustomerWalletLedgerEntry> & {
+        walletBalance: number;
+      }
+    >(`/customers/${id}/wallet-ledger${buildQuery(params)}`),
+
+  applyCustomerWallet: (
+    id: string,
+    payload: { type: string; amount: number; note?: string }
+  ) =>
+    request<{
+      walletBalance: number;
+      entry: import("@/types").CustomerWalletLedgerEntry;
+    }>(`/customers/${id}/wallet`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  getCustomerPointsLedger: (id: string, params?: ListQueryParams) =>
+    request<
+      ListResponse<import("@/types").CustomerPointsLedgerEntry> & {
+        pointsBalance: number;
+      }
+    >(`/customers/${id}/points-ledger${buildQuery(params)}`),
+
+  applyCustomerPoints: (
+    id: string,
+    payload: { type: string; points: number; note?: string }
+  ) =>
+    request<{
+      pointsBalance: number;
+      entry: import("@/types").CustomerPointsLedgerEntry;
+    }>(`/customers/${id}/points`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  createCustomer: (payload: Record<string, unknown>) =>
+    request<import("@/types").CustomerRecord>("/customers", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  updateCustomer: (id: string, payload: Record<string, unknown>) =>
+    request<import("@/types").CustomerRecord>(`/customers/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
+  deleteCustomer: (id: string) =>
+    request<{ message: string }>(`/customers/${id}`, { method: "DELETE" }),
+
+  getOrders: (params?: ListQueryParams) =>
+    request<ListResponse<import("@/types").OrderRecord>>(`/orders${buildQuery(params)}`),
+
+  getOrderSchema: (
+    params: { groupId?: string; businessId?: string; surface?: "admin" | "customerApp" }
+  ) =>
+    request<import("@/types").EntitySchemaRecord>(
+      `/orders/schema${buildQuery(params)}`
+    ),
+
+  getOrder: (id: string) => request<import("@/types").OrderRecord>(`/orders/${id}`),
+
+  getOrderPaymentLink: (id: string) =>
+    request<{ checkoutUrl: string }>(`/orders/${id}/payment-link`, { method: "POST" }),
+
+  getOrderCatalogOptions: (params: { groupId: string; businessId: string }) =>
+    request<{
+      items: import("@/types").OrderCatalogProduct[];
+      portalPaymentMethods?: import("@/constants/commerce").CheckoutPaymentMethod[];
+    }>(`/orders/catalog-options${buildQuery(params)}`),
+
+  createOrder: (payload: Record<string, unknown>) =>
+    request<import("@/types").OrderRecord>("/orders", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  updateOrder: (id: string, payload: Record<string, unknown>) =>
+    request<import("@/types").OrderRecord>(`/orders/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
+  refundOrderToWallet: (id: string) =>
+    request<import("@/types").OrderRecord>(`/orders/${id}/refund-to-wallet`, {
+      method: "POST",
+    }),
+
+  refundOrderViaStripe: (id: string) =>
+    request<import("@/types").OrderRecord>(`/orders/${id}/refund-stripe`, {
+      method: "POST",
+    }),
+
+  deleteOrder: (id: string) =>
+    request<{ message: string }>(`/orders/${id}`, { method: "DELETE" }),
+
+  getStock: (params?: ListQueryParams) =>
+    request<ListResponse<import("@/types").StockRecord>>(`/stock${buildQuery(params)}`),
+
+  getStockSchema: (businessId: string, surface?: "admin" | "customerApp") =>
+    request<import("@/types").EntitySchemaRecord>(
+      `/stock/schema${buildQuery({ businessId, surface })}`
+    ),
+
+  getStockItem: (id: string) => request<import("@/types").StockRecord>(`/stock/${id}`),
+
+  updateStock: (id: string, payload: Record<string, unknown>) =>
+    request<import("@/types").StockRecord>(`/stock/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
 
   getResolvedTheme: () =>
     request<import("@/types/brandTheme").BrandThemeRecord>("/themes/resolved"),
@@ -322,6 +515,15 @@ export const api = {
   markAllNotificationsRead: () =>
     request<{ updatedCount: number }>("/notifications/inbox/read-all", { method: "PATCH" }),
 
+  getPlatformPayments: () =>
+    request<import("@/constants/commerce").PlatformStripeSettings>("/settings/payments"),
+
+  updatePlatformPayments: (payload: Record<string, unknown>) =>
+    request<import("@/constants/commerce").PlatformStripeSettings>("/settings/payments", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
   getUploadConfig: () =>
     request<import("@/lib/media").UploadConfig>("/uploads/config"),
 
@@ -339,4 +541,44 @@ export const api = {
       method: "DELETE",
       body: JSON.stringify({ path }),
     }),
+
+  getInsightGroups: () =>
+    request<{ items: import("@/types").InsightsGroup[] }>("/insights/groups"),
+
+  getDashboardSummary: (params?: ListQueryParams) =>
+    request<import("@/types").DashboardSummary>(`/insights/dashboard/summary${buildQuery(params)}`),
+
+  getDashboardCharts: (params?: ListQueryParams) =>
+    request<import("@/types").DashboardCharts>(`/insights/dashboard/charts${buildQuery(params)}`),
+
+  getDashboardUnpaid: (params?: ListQueryParams) =>
+    request<import("@/types").ListResponse<import("@/types").InsightsAttentionOrder>>(
+      `/insights/dashboard/unpaid${buildQuery(params)}`
+    ),
+
+  getDashboardRefunds: (params?: ListQueryParams) =>
+    request<import("@/types").ListResponse<import("@/types").InsightsAttentionOrder>>(
+      `/insights/dashboard/refunds${buildQuery(params)}`
+    ),
+
+  getDashboardStockAlerts: (params?: ListQueryParams) =>
+    request<import("@/types").ListResponse<import("@/types").InsightsAttentionStock>>(
+      `/insights/dashboard/stock-alerts${buildQuery(params)}`
+    ),
+
+  getDashboardBreakdowns: (params?: ListQueryParams) =>
+    request<import("@/types").DashboardBreakdowns>(
+      `/insights/dashboard/breakdowns${buildQuery(params)}`
+    ),
+
+  getRecycleBin: (params?: ListQueryParams) =>
+    request<import("@/types").ListResponse<import("@/types").RecycleBinRecord>>(
+      `/recycle-bin${buildQuery(params)}`
+    ),
+
+  getRecycleBinTypes: () =>
+    request<{ items: { value: string; label: string }[] }>("/recycle-bin/types"),
+
+  restoreRecycleBinItem: (type: string, id: string) =>
+    request<{ message: string }>(`/recycle-bin/${type}/${id}/restore`, { method: "POST" }),
 };

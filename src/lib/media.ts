@@ -11,6 +11,19 @@ export interface ProductImage {
   isFeatured?: boolean;
 }
 
+/** Filled from GET /api/uploads/config so UI matches Backend UPLOAD_STORAGE / S3 settings. */
+let runtimeS3Prefix = "";
+let runtimePublicBaseUrl = "";
+
+export function applyUploadMediaConfig(config: Partial<UploadConfig> | null | undefined) {
+  runtimeS3Prefix = String(config?.s3PublicUrlPrefix || "")
+    .trim()
+    .replace(/\/$/, "");
+  runtimePublicBaseUrl = String(config?.publicBaseUrl || "")
+    .trim()
+    .replace(/\/$/, "");
+}
+
 export function normalizeMediaPath(value: string): string {
   if (!value?.trim()) return "";
   const trimmed = value.trim();
@@ -30,14 +43,21 @@ export function resolveMediaUrl(path: string): string {
     return normalized;
   }
 
-  const envBase = import.meta.env.VITE_MEDIA_BASE_URL?.replace(/\/$/, "");
-  if (envBase) {
-    return `${envBase}/${normalized}`;
-  }
-
-  const s3Prefix = import.meta.env.VITE_S3_PUBLIC_URL_PREFIX?.replace(/\/$/, "");
+  const s3Prefix =
+    runtimeS3Prefix ||
+    String(import.meta.env.VITE_S3_PUBLIC_URL_PREFIX || "")
+      .trim()
+      .replace(/\/$/, "");
   if (s3Prefix) {
     return `${s3Prefix}/${normalized}`;
+  }
+
+  const envBase = String(import.meta.env.VITE_MEDIA_BASE_URL || "")
+    .trim()
+    .replace(/\/$/, "");
+  const publicBase = runtimePublicBaseUrl || envBase;
+  if (publicBase) {
+    return `${publicBase}/media/${normalized}`;
   }
 
   return `/media/${normalized}`;
@@ -78,4 +98,13 @@ export function normalizeProductImages(
 export function getFeaturedImagePath(images: ProductImage[]): string {
   const featured = images.find((item) => item.isFeatured);
   return featured?.path || images[0]?.path || "";
+}
+
+/** Static asset used when a category has no uploaded image. */
+export const DEFAULT_CATEGORY_IMAGE = "/category-default.svg";
+
+export function resolveCategoryImageUrl(imagePath?: string): string {
+  const path = normalizeMediaPath(imagePath || "");
+  if (!path) return DEFAULT_CATEGORY_IMAGE;
+  return resolveMediaUrl(path);
 }

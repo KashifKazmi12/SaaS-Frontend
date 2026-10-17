@@ -210,6 +210,21 @@ export const api = {
   deleteProduct: (id: string) =>
     request<{ message: string }>(`/products/${id}`, { method: "DELETE" }),
 
+  importProducts: (payload: {
+    businessId: string;
+    rows: Record<string, string>[];
+    quantityMode?: "add" | "set";
+  }) =>
+    request<{
+      created: number;
+      updated: number;
+      skipped: number;
+      errors: Array<{ row: number; message: string }>;
+    }>("/products/import", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
   createProductVariation: (productId: string, payload: Record<string, unknown>) =>
     request<import("@/types").ProductVariationRecord>(`/products/${productId}/variations`, {
       method: "POST",
@@ -398,6 +413,21 @@ export const api = {
   updateStock: (id: string, payload: Record<string, unknown>) =>
     request<import("@/types").StockRecord>(`/stock/${id}`, {
       method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
+  importStock: (payload: {
+    businessId: string;
+    rows: Record<string, string>[];
+    quantityMode?: "add" | "set";
+  }) =>
+    request<{
+      created: number;
+      updated: number;
+      skipped: number;
+      errors: Array<{ row: number; message: string }>;
+    }>("/stock/import", {
+      method: "POST",
       body: JSON.stringify(payload),
     }),
 

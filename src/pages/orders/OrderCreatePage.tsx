@@ -56,6 +56,7 @@ interface DraftItem {
   key: string;
   productId: string;
   variationId: string;
+  unitPrice: string;
   quantity: string;
 }
 
@@ -64,8 +65,22 @@ function newDraftItem(): DraftItem {
     key: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     productId: "",
     variationId: "",
+    unitPrice: "",
     quantity: "1",
   };
+}
+
+function catalogUnitPrice(
+  product: OrderCatalogProduct | undefined,
+  variationId: string
+): number {
+  if (!product) return 0;
+  if (product.hasVariations) {
+    if (!variationId) return 0;
+    const variation = product.variations.find((row) => row._id === variationId);
+    return Number(variation?.price) || 0;
+  }
+  return Number(product.basePrice) || 0;
 }
 
 function orderFormValues(fields: EntityFieldDefinition[]): Record<string, unknown> {
@@ -103,7 +118,6 @@ export default function OrderCreatePage() {
     DEFAULT_PORTAL_PAYMENT_METHODS
   );
   const [items, setItems] = useState<DraftItem[]>([newDraftItem()]);
-  const [productFocusToken, setProductFocusToken] = useState<string | null>(null);
   const [formValues, setFormValues] = useState<Record<string, unknown>>({});
   const [schemaFields, setSchemaFields] = useState<EntityFieldDefinition[]>([]);
   const [schemaLoading, setSchemaLoading] = useState(false);
@@ -139,11 +153,11 @@ export default function OrderCreatePage() {
         const product = catalog.find((row) => row._id === item.productId);
         if (!product) return sum;
         const qty = Math.max(1, Math.floor(Number(item.quantity) || 1));
-        let unit = Number(product.basePrice) || 0;
-        if (product.hasVariations && item.variationId) {
-          const variation = product.variations.find((row) => row._id === item.variationId);
-          unit = Number(variation?.price) || 0;
-        }
+        const catalogPrice = catalogUnitPrice(product, item.variationId);
+        const unit =
+          item.unitPrice.trim() === ""
+            ? catalogPrice
+            : Math.max(0, Number(item.unitPrice) || 0);
         return sum + unit * qty;
       }, 0)
     );
@@ -234,8 +248,7 @@ export default function OrderCreatePage() {
 
     let cancelled = false;
     setSchemaLoading(true);
-    const draft = newDraftItem();
-    setItems([draft]);
+    setItems([newDraftItem()]);
 
     Promise.all([
       api.getOrderCatalogOptions({ groupId, businessId }),
@@ -265,7 +278,6 @@ export default function OrderCreatePage() {
       .finally(() => {
         if (cancelled) return;
         setSchemaLoading(false);
-        setProductFocusToken(`${draft.key}:${Date.now()}`);
       });
 
     return () => {
@@ -292,13 +304,6 @@ export default function OrderCreatePage() {
       next.splice(index + 1, 0, draft);
       return next;
     });
-    const token = `${draft.key}:${Date.now()}`;
-    setProductFocusToken(token);
-    // Ensure focus lands on the new row product field after paint.
-    window.setTimeout(() => {
-      const trigger = document.getElementById(`product-${draft.key}`);
-      trigger?.focus();
-    }, 30);
   }
 
   function handleItemEnter(afterKey: string) {
@@ -309,32 +314,21 @@ export default function OrderCreatePage() {
   function removeItemRow(itemKey: string) {
     setItems((current) => {
       if (current.length <= 1) {
-        const draft = newDraftItem();
-        window.setTimeout(() => {
-          setProductFocusToken(`${draft.key}:${Date.now()}`);
-          document.getElementById(`product-${draft.key}`)?.focus();
-        }, 30);
-        return [draft];
+        return [newDraftItem()];
       }
-      const index = current.findIndex((row) => row.key === itemKey);
-      const next = current.filter((row) => row.key !== itemKey);
-      const focusRow = next[Math.max(0, index - 1)] ?? next[0];
-      window.setTimeout(() => {
-        setProductFocusToken(`${focusRow.key}:${Date.now()}`);
-        document.getElementById(`product-${focusRow.key}`)?.focus();
-      }, 30);
-      return next;
+      return current.filter((row) => row.key !== itemKey);
     });
   }
 
   function handleItemRowKeyDown(event: KeyboardEvent<HTMLDivElement>, itemKey: string) {
     if (event.key !== "Delete") return;
     const target = event.target as HTMLElement | null;
-    // Don't remove while a dropdown list is open / being navigated.
-    if (target?.closest('[data-slot="select-content"]')) return;
+    // Don't remove while a dropdown is open or while editing a text/number field.
+    if (target?.closest('[data-slot="select-content"], [data-slot="combobox-content"]')) return;
     if (target?.closest('[data-slot="select-trigger"]')?.getAttribute("aria-expanded") === "true") {
       return;
     }
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
     event.preventDefault();
     event.stopPropagation();
     removeItemRow(itemKey);
@@ -348,8 +342,7 @@ export default function OrderCreatePage() {
 
   function resetFormForNextOrder() {
     setCustomerName("");
-    const draft = newDraftItem();
-    setItems([draft]);
+    setItems([newDraftItem()]);
     setFormValues(orderFormValues(schemaFields));
     setPaymentMethod(
       (portalPaymentMethods[0] || "unpaid") as OrderPaymentMethod
@@ -358,7 +351,6 @@ export default function OrderCreatePage() {
     setDiscountMode("fixed");
     setError("");
     setMessage("");
-    setProductFocusToken(`${draft.key}:${Date.now()}`);
   }
 
   function handleSuccessAddNew() {
@@ -399,11 +391,20 @@ export default function OrderCreatePage() {
 
     const payloadItems = items
       .filter((item) => item.productId)
-      .map((item) => ({
-        productId: item.productId,
-        variationId: item.variationId || undefined,
-        quantity: Number(item.quantity) || 1,
-      }));
+      .map((item) => {
+        const product = catalog.find((row) => row._id === item.productId);
+        const catalogPrice = catalogUnitPrice(product, item.variationId);
+        const unitPrice =
+          item.unitPrice.trim() === ""
+            ? catalogPrice
+            : Math.max(0, Number(item.unitPrice) || 0);
+        return {
+          productId: item.productId,
+          variationId: item.variationId || undefined,
+          quantity: Number(item.quantity) || 1,
+          unitPrice,
+        };
+      });
 
     if (payloadItems.length === 0) {
       setError("Add at least one product.");
@@ -502,7 +503,6 @@ export default function OrderCreatePage() {
                       onClick={() => {
                         const draft = newDraftItem();
                         setItems((current) => [...current, draft]);
-                        setProductFocusToken(`${draft.key}:${Date.now()}`);
                       }}
                     >
                       <Plus className="size-4" />
@@ -521,10 +521,15 @@ export default function OrderCreatePage() {
                       const imageSrc = product?.imagePath
                         ? resolveMediaUrl(product.imagePath)
                         : "";
+                      const hasVariations = Boolean(product?.hasVariations);
                       return (
                         <div
                           key={item.key}
-                          className="grid gap-3 rounded-xl border p-3 sm:grid-cols-[64px_1fr_1fr_90px_auto]"
+                          className={
+                            hasVariations
+                              ? "grid gap-3 rounded-xl border p-3 sm:grid-cols-[64px_1fr_1fr_110px_90px_auto]"
+                              : "grid gap-3 rounded-xl border p-3 sm:grid-cols-[64px_1fr_110px_90px_auto]"
+                          }
                           onKeyDown={(event) => handleItemRowKeyDown(event, item.key)}
                         >
                           <div className="bg-muted flex size-16 items-center justify-center overflow-hidden rounded-lg border">
@@ -542,55 +547,58 @@ export default function OrderCreatePage() {
                             id={`product-${item.key}`}
                             label="Product"
                             value={item.productId}
-                            onValueChange={(value) =>
-                              updateItem(item.key, { productId: value, variationId: "" })
-                            }
+                            onValueChange={(value) => {
+                              const next = catalog.find((row) => row._id === value);
+                              const nextPrice = next?.hasVariations
+                                ? ""
+                                : String(catalogUnitPrice(next, "") || "");
+                              updateItem(item.key, {
+                                productId: value,
+                                variationId: "",
+                                unitPrice: nextPrice,
+                              });
+                            }}
                             options={catalog.map((row) => ({
                               value: row._id,
                               label: row.name,
                             }))}
                             required
                             placeholder={catalog.length ? "Select product" : "No products"}
-                            focusOpenToken={
-                              productFocusToken?.startsWith(`${item.key}:`)
-                                ? productFocusToken
-                                : null
-                            }
-                            onOpenChange={(open) => {
-                              // One-shot assist only — clear token after dismiss or select.
-                              if (
-                                !open &&
-                                productFocusToken?.startsWith(`${item.key}:`)
-                              ) {
-                                setProductFocusToken(null);
-                              }
-                            }}
                             onEnterWhenClosed={() => handleItemEnter(item.key)}
                           />
-                          {product?.hasVariations ? (
+                          {hasVariations ? (
                             <EnumSelect
                               id={`variation-${item.key}`}
                               label="Variation"
                               value={item.variationId}
                               onValueChange={(value) =>
-                                updateItem(item.key, { variationId: value })
+                                updateItem(item.key, {
+                                  variationId: value,
+                                  unitPrice: String(catalogUnitPrice(product, value) || ""),
+                                })
                               }
-                              options={product.variations.map((row) => ({
+                              options={product!.variations.map((row) => ({
                                 value: row._id,
                                 label: `${row.name} · ${formatMoney(row.price, groupCurrency)}`,
                               }))}
                               required
-                              autoOpenOnFocus
                               onEnterWhenClosed={() => handleItemEnter(item.key)}
                             />
-                          ) : (
-                            <FormField
-                              id={`price-${item.key}`}
-                              label="Price"
-                              value={product ? formatMoney(product.basePrice, groupCurrency) : "—"}
-                              disabled
-                            />
-                          )}
+                          ) : null}
+                          <FormField
+                            id={`price-${item.key}`}
+                            label="Price"
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={item.unitPrice}
+                            onChange={(event) =>
+                              updateItem(item.key, { unitPrice: event.target.value })
+                            }
+                            placeholder={groupCurrency}
+                            required={Boolean(item.productId)}
+                            disabled={!item.productId || (hasVariations && !item.variationId)}
+                          />
                           <FormField
                             id={`qty-${item.key}`}
                             label="Qty"
@@ -642,7 +650,6 @@ export default function OrderCreatePage() {
                     onValueChange={(value) => setPaymentMethod(value as OrderPaymentMethod)}
                     options={paymentOptions}
                     required
-                    autoOpenOnFocus
                   />
                 </CardContent>
               </Card>

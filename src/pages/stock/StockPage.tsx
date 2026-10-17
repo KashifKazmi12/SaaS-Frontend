@@ -11,8 +11,11 @@ import {
   ListFilters,
   ListPagination,
   PageAlerts,
+  PermissionButton,
   textColumn,
 } from "@/components/shared";
+import { ImportWizard } from "@/components/import/ImportWizard";
+import { STOCK_IMPORT_FIELDS } from "@/components/import/importFields";
 import { Badge } from "@/components/ui/badge";
 import { useBusinessOptions, useBusinessVisibility } from "@/hooks/useBusinessOptions";
 import { resolveListBusinessId, useListSchemaFields } from "@/hooks/useListSchemaFields";
@@ -79,6 +82,7 @@ export default function StockPage() {
   const [formValues, setFormValues] = useState<Record<string, unknown>>(stockFormValues());
   const [schemaFields, setSchemaFields] = useState<EntityFieldDefinition[]>([]);
   const [schemaLoading, setSchemaLoading] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const { options: businessOptions } = useBusinessOptions(isSuperAdmin ? "all" : "assigned");
   const listBusinessId = resolveListBusinessId(
     list.getFilter("businessId"),
@@ -215,6 +219,16 @@ export default function StockPage() {
           emptyMessage={
             list.activeCount > 0 ? "No stock matches your filters." : "No products to track yet."
           }
+          headerActions={
+            <PermissionButton
+              modulePath={MODULE_PATH}
+              action="create"
+              variant="outline"
+              onClick={() => setImportOpen(true)}
+            >
+              Import
+            </PermissionButton>
+          }
           filters={
             <ListFilters
               search={list.searchInput}
@@ -269,6 +283,19 @@ export default function StockPage() {
               onLimitChange={list.setLimit}
             />
           }
+        />
+
+        <ImportWizard
+          open={importOpen}
+          onOpenChange={setImportOpen}
+          title="Import stock"
+          fields={STOCK_IMPORT_FIELDS}
+          businessScope={isSuperAdmin ? "all" : "assigned"}
+          onImport={(payload) => api.importStock(payload)}
+          onFinished={() => {
+            void loadStock();
+            crud.setMessage("Stock import finished.");
+          }}
         />
 
         <CrudDialog

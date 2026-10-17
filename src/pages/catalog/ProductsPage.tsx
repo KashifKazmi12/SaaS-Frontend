@@ -30,6 +30,8 @@ import {
   textColumn,
 } from "@/components/shared";
 import { Layers } from "lucide-react";
+import { ImportWizard } from "@/components/import/ImportWizard";
+import { PRODUCT_IMPORT_FIELDS } from "@/components/import/importFields";
 import { useBusinessOptions, useBusinessVisibility } from "@/hooks/useBusinessOptions";
 import { resolveListBusinessId, useListSchemaFields } from "@/hooks/useListSchemaFields";
 import { useCategoryOptions } from "@/hooks/useCategoryOptions";
@@ -147,6 +149,7 @@ export default function ProductsPage() {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [variationsDialogOpen, setVariationsDialogOpen] = useState(false);
   const [variationsProduct, setVariationsProduct] = useState<ProductRecord | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const { options: businessOptions } = useBusinessOptions(isSuperAdmin ? "all" : "assigned");
   const filterBusinessId = list.getFilter("businessId");
   const listBusinessId = resolveListBusinessId(filterBusinessId, singleAssignedBusiness?.id);
@@ -337,11 +340,6 @@ export default function ProductsPage() {
       return;
     }
 
-    if (images.length === 0) {
-      crud.setError("At least one product image is required.");
-      return;
-    }
-
     const payload = buildEntityPayload("product", { ...formValues, unit }, schemaFields);
     payload.unit = unit;
     payload.images = images;
@@ -529,10 +527,33 @@ export default function ProductsPage() {
           createLabel="Add product"
           onCreate={() => crud.startCreate(resetForm)}
           headerActions={
-            <PermissionButton modulePath={MODULE_PATH} action="export" variant="outline" onClick={handleExport}>
-              Export
-            </PermissionButton>
+            <>
+              <PermissionButton
+                modulePath={MODULE_PATH}
+                action="create"
+                variant="outline"
+                onClick={() => setImportOpen(true)}
+              >
+                Import
+              </PermissionButton>
+              <PermissionButton modulePath={MODULE_PATH} action="export" variant="outline" onClick={handleExport}>
+                Export
+              </PermissionButton>
+            </>
           }
+        />
+
+        <ImportWizard
+          open={importOpen}
+          onOpenChange={setImportOpen}
+          title="Import products"
+          fields={PRODUCT_IMPORT_FIELDS}
+          businessScope={isSuperAdmin ? "all" : "assigned"}
+          onImport={(payload) => api.importProducts(payload)}
+          onFinished={() => {
+            void loadProducts();
+            crud.setMessage("Product import finished.");
+          }}
         />
 
         <CrudDialog
@@ -588,7 +609,6 @@ export default function ProductsPage() {
             value={images}
             onChange={setImages}
             maxFiles={8}
-            required
             recommendedSize={{
               width: 800,
               height: 800,

@@ -21,7 +21,7 @@ export function DashboardLayout() {
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
         <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-7xl p-6">
+          <div className="mx-auto w-full max-w-[1800px] p-6">
             <Outlet />
           </div>
         </main>

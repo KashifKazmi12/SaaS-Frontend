@@ -1,13 +1,8 @@
+import { useMemo } from "react";
 import { useCategoryOptions } from "@/hooks/useCategoryOptions";
 import { Input } from "@/components/ui/input";
 import { FieldLabel } from "@/components/shared/FormField";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { EnumSelect } from "@/components/shared/EnumSelect";
 
 export interface CategorySelectProps {
   businessId: string;
@@ -40,10 +35,13 @@ export function CategorySelect({
 }: CategorySelectProps) {
   const { options, loading, error, getLabel } = useCategoryOptions(businessId);
 
-  const selectItems = [
-    ...(allowEmpty ? [{ value: "", label: emptyLabel }] : []),
-    ...options.map((option) => ({ value: option.id, label: option.name })),
-  ];
+  const selectItems = useMemo(
+    () => [
+      ...(allowEmpty ? [{ value: "", label: emptyLabel }] : []),
+      ...options.map((option) => ({ value: option.id, label: option.name })),
+    ],
+    [allowEmpty, emptyLabel, options]
+  );
 
   const displayName = value ? getLabel(value) : emptyLabel;
 
@@ -78,25 +76,14 @@ export function CategorySelect({
         ) : error ? (
           <Input id={id} value={error} disabled aria-invalid />
         ) : (
-          <Select
+          <EnumSelect
+            id={id}
             value={value}
-            onValueChange={(nextValue) => onValueChange?.(nextValue ?? "")}
-            items={selectItems}
-          >
-            <SelectTrigger id={id} className="w-full">
-              <SelectValue placeholder={placeholder}>
-                {value ? displayName : null}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {allowEmpty && <SelectItem value="">{emptyLabel}</SelectItem>}
-              {options.map((option) => (
-                <SelectItem key={option.id} value={option.id}>
-                  {option.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            onValueChange={onValueChange}
+            options={selectItems}
+            placeholder={placeholder}
+            required={required}
+          />
         )}
 
         {hint && <p className="text-xs text-muted-foreground">{hint}</p>}

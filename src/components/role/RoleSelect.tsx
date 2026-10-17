@@ -1,13 +1,8 @@
+import { useMemo } from "react";
 import { useRoleOptions } from "@/hooks/useRoleOptions";
 import { FieldLabel } from "@/components/shared/FormField";
+import { EnumSelect } from "@/components/shared/EnumSelect";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import type { RoleRecord } from "@/types";
 
 export interface RoleSelectProps {
@@ -35,6 +30,11 @@ export function RoleSelect({
 }: RoleSelectProps) {
   const { options, loading, error, getLabel } = useRoleOptions({ roles });
 
+  const selectItems = useMemo(
+    () => options.map((option) => ({ value: option.id, label: option.name })),
+    [options]
+  );
+
   const displayName = getLabel(value) || options.find((option) => option.id === value)?.name || "";
 
   return (
@@ -51,22 +51,14 @@ export function RoleSelect({
         ) : error ? (
           <Input id={id} value={error} disabled aria-invalid />
         ) : (
-          <Select
+          <EnumSelect
+            id={id}
             value={value}
-            onValueChange={(nextValue) => onValueChange?.(nextValue ?? "")}
-            items={options.map((option) => ({ value: option.id, label: option.name }))}
-          >
-            <SelectTrigger id={id} className="w-full">
-              <SelectValue placeholder={placeholder} />
-            </SelectTrigger>
-            <SelectContent>
-              {options.map((option) => (
-                <SelectItem key={option.id} value={option.id}>
-                  {option.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            onValueChange={onValueChange}
+            options={selectItems}
+            placeholder={placeholder}
+            required={required}
+          />
         )}
       </div>
     </div>

@@ -6,14 +6,8 @@ import {
 } from "@/hooks/useBusinessOptions";
 import { Input } from "@/components/ui/input";
 import { FieldLabel } from "@/components/shared/FormField";
+import { EnumSelect } from "@/components/shared/EnumSelect";
 import { cn } from "@/lib/utils";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 export type BusinessSelectVisibility =
   | "always"
@@ -61,7 +55,6 @@ export function BusinessSelect({
   extraOptions = [],
   options: optionsProp,
   required = false,
-  triggerSize = "default",
 }: BusinessSelectProps) {
   const hooked = useBusinessOptions(scope);
   const usingCustomOptions = Array.isArray(optionsProp);
@@ -131,22 +124,15 @@ export function BusinessSelect({
         ) : error ? (
           <Input id={id} value={error} disabled aria-invalid />
         ) : (
-          <Select
+          <EnumSelect
+            id={id}
             value={value}
-            onValueChange={(nextValue) => onValueChange?.(nextValue ?? "")}
-            items={selectItems}
-          >
-            <SelectTrigger id={id} size={triggerSize} className={cn("w-full", triggerClassName)}>
-              <SelectValue placeholder={placeholder}>{displayName || null}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {mergedOptions.map((option) => (
-                <SelectItem key={option.id} value={option.id}>
-                  {option.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            onValueChange={onValueChange}
+            options={selectItems}
+            placeholder={placeholder}
+            required={showRequiredMarker}
+            inputClassName={cn(triggerClassName)}
+          />
         )}
 
         {hint && <p className="text-xs text-muted-foreground">{hint}</p>}

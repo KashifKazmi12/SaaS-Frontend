@@ -25,6 +25,7 @@ import {
   type GroupCurrency,
 } from "@/constants/commerce";
 import { MODULE_PATHS } from "@/lib/modulePaths";
+import { useAuth } from "@/context/AuthContext";
 
 const MODULE_PATH = MODULE_PATHS.BUSINESS_GROUPS;
 
@@ -35,6 +36,7 @@ const STOREFRONT_THEME_OPTIONS = [
 
 export default function BusinessGroupCreatePage() {
   const navigate = useNavigate();
+  const { refreshSession } = useAuth();
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [description, setDescription] = useState("");
@@ -68,6 +70,7 @@ export default function BusinessGroupCreatePage() {
         currency,
         ...loyaltyPayloadFromForm(loyalty),
       });
+      await refreshSession();
       setMessage("Business group created.");
       navigate(`${MODULE_PATH}/${created._id}`, { replace: true });
     } catch (err) {

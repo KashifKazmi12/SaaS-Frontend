@@ -18,12 +18,14 @@ import { useListQuery } from "@/hooks/useListQuery";
 import { resolveMediaUrl } from "@/lib/media";
 import { STATUS_FILTER_OPTIONS } from "@/lib/listFilters";
 import { MODULE_PATHS } from "@/lib/modulePaths";
+import { useAuth } from "@/context/AuthContext";
 import type { BusinessGroupRecord } from "@/types";
 
 const MODULE_PATH = MODULE_PATHS.BUSINESS_GROUPS;
 
 export default function BusinessGroupsPage() {
   const navigate = useNavigate();
+  const { refreshSession } = useAuth();
   const crud = useCrudPage<BusinessGroupRecord>();
   const list = useListQuery();
   const [groups, setGroups] = useState<BusinessGroupRecord[]>([]);
@@ -73,6 +75,7 @@ export default function BusinessGroupsPage() {
       group.name,
       async () => {
         await api.deleteBusinessGroup(group._id);
+        await refreshSession();
       },
       {
         successMessage: "Business group removed.",

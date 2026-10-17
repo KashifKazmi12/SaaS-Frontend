@@ -1,13 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { FieldLabel } from "@/components/shared/FormField";
+import { EnumSelect } from "@/components/shared/EnumSelect";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { BusinessGroupRecord } from "@/types";
 import { useBusinessGroupOptions } from "@/hooks/useBusinessGroupOptions";
@@ -56,7 +50,6 @@ export function BusinessGroupSelect({
   triggerClassName,
   id = "business-group-select",
   required = false,
-  triggerSize = "default",
   visibility = "hide-when-single",
 }: BusinessGroupSelectProps) {
   const hooked = useBusinessGroupOptions({ groups: optionsProp ? undefined : groups });
@@ -116,23 +109,15 @@ export function BusinessGroupSelect({
         ) : error ? (
           <Input id={id} value={error} disabled aria-invalid />
         ) : (
-          <Select
+          <EnumSelect
+            id={id}
             value={value}
-            onValueChange={(nextValue) => onValueChange?.(nextValue ?? "")}
-            items={selectItems}
-          >
-            <SelectTrigger id={id} size={triggerSize} className={cn("w-full", triggerClassName)}>
-              <SelectValue placeholder={placeholder} />
-            </SelectTrigger>
-            <SelectContent>
-              {allowEmpty && <SelectItem value="">{emptyLabel}</SelectItem>}
-              {options.map((option) => (
-                <SelectItem key={option.id} value={option.id}>
-                  {option.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            onValueChange={onValueChange}
+            options={selectItems}
+            placeholder={placeholder}
+            required={showRequiredMarker}
+            inputClassName={cn(triggerClassName)}
+          />
         )}
       </div>
     </div>

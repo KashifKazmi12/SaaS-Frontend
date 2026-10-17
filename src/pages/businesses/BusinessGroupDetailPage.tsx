@@ -40,7 +40,7 @@ function normalizeCurrency(value?: string): GroupCurrency {
 export default function BusinessGroupDetailPage() {
   const { groupId = "" } = useParams();
   const navigate = useNavigate();
-  const { can } = useAuth();
+  const { can, refreshSession } = useAuth();
   const canUpdate = can(MODULE_PATH, "update");
 
   const [group, setGroup] = useState<BusinessGroupRecord | null>(null);
@@ -114,6 +114,7 @@ export default function BusinessGroupDetailPage() {
         ...loyaltyPayloadFromForm(loyalty),
       });
       applyGroup(updated);
+      await refreshSession();
       setMessage("Business group saved.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save business group.");

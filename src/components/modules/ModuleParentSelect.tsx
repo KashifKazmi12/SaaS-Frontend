@@ -1,13 +1,8 @@
+import { useMemo } from "react";
 import { useModuleOptions } from "@/hooks/useModuleOptions";
 import { FieldLabel } from "@/components/shared/FormField";
+import { EnumSelect } from "@/components/shared/EnumSelect";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import type { ModuleRecord } from "@/types";
 
 export interface ModuleParentSelectProps {
@@ -35,6 +30,11 @@ export function ModuleParentSelect({
 }: ModuleParentSelectProps) {
   const { options, getLabel } = useModuleOptions({ modules, parentOnly: true });
 
+  const selectItems = useMemo(
+    () => options.map((option) => ({ value: option.id, label: option.name })),
+    [options]
+  );
+
   const displayName = getLabel(value) || options.find((option) => option.id === value)?.name || "";
 
   return (
@@ -47,22 +47,14 @@ export function ModuleParentSelect({
         {readOnly ? (
           <Input id={id} value={displayName || "—"} disabled />
         ) : (
-          <Select
+          <EnumSelect
+            id={id}
             value={value}
-            onValueChange={(nextValue) => onValueChange?.(nextValue ?? "")}
-            items={options.map((option) => ({ value: option.id, label: option.name }))}
-          >
-            <SelectTrigger id={id} className="w-full">
-              <SelectValue placeholder={placeholder} />
-            </SelectTrigger>
-            <SelectContent>
-              {options.map((option) => (
-                <SelectItem key={option.id} value={option.id}>
-                  {option.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            onValueChange={onValueChange}
+            options={selectItems}
+            placeholder={placeholder}
+            required={required}
+          />
         )}
       </div>
     </div>

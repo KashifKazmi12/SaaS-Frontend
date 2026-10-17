@@ -172,15 +172,8 @@ export function imageColumn<T>(
     hidden: options?.hidden,
     headerClassName: options?.headerClassName,
     cellClassName: cn("w-14", options?.cellClassName),
-    cell: (row) => {
-      const src = getSrc(row);
-      if (!src) return "—";
-      return (
-        <MediaThumbnail
-          src={src}
-          alt={options?.alt?.(row) ?? ""}
-        />
-      );
-    },
+    cell: (row) => (
+      <MediaThumbnail src={getSrc(row)} alt={options?.alt?.(row) ?? ""} />
+    ),
   };
 }

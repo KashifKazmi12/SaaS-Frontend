@@ -1,10 +1,4 @@
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { EnumSelect } from "@/components/shared/EnumSelect";
 import { cn } from "@/lib/utils";
 
 export interface FilterSelectOption {
@@ -29,28 +23,15 @@ export function FilterSelect({
   className,
   id,
 }: FilterSelectProps) {
-  const selected = options.find((option) => option.value === value);
-
   return (
-    <Select
+    <EnumSelect
+      id={id}
       value={value}
-      onValueChange={(nextValue) => {
-        if (nextValue) onValueChange(nextValue);
-      }}
-      items={options}
-    >
-      <SelectTrigger id={id} className={cn("w-full sm:w-44", className)}>
-        <SelectValue placeholder={placeholder}>
-          {selected?.label || null}
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent>
-        {options.map((option) => (
-          <SelectItem key={option.value} value={option.value}>
-            {option.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+      onValueChange={onValueChange}
+      options={options}
+      placeholder={placeholder}
+      className={cn("w-full sm:w-44", className)}
+      inputClassName="w-full"
+    />
   );
 }

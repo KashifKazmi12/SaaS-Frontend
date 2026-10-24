@@ -26,12 +26,12 @@ export function ListPagination({
   const to = Math.min(page * limit, total);
 
   return (
-    <div className="flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-3 border-t border-border/40 pt-3 sm:flex-row sm:items-center sm:justify-between">
       <p className="text-xs text-muted-foreground">
         Showing {from}–{to} of {total}
       </p>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
         <FilterSelect
           value={String(limit)}
           onValueChange={(value) => onLimitChange(Number(value))}
@@ -39,7 +39,7 @@ export function ListPagination({
             value: String(size),
             label: `${size} / page`,
           }))}
-          className="sm:w-32"
+          className="w-full sm:w-32"
         />
 
         <div className="flex items-center gap-1">
@@ -47,19 +47,21 @@ export function ListPagination({
             type="button"
             variant="outline"
             size="sm"
+            className="flex-1 sm:flex-none"
             disabled={page <= 1}
             onClick={() => onPageChange(page - 1)}
           >
             <ChevronLeft className="size-3.5" />
             Prev
           </Button>
-          <span className="min-w-20 px-2 text-center text-xs text-muted-foreground">
-            Page {page} of {totalPages}
+          <span className="min-w-16 px-1 text-center text-xs text-muted-foreground sm:min-w-20 sm:px-2">
+            {page}/{totalPages}
           </span>
           <Button
             type="button"
             variant="outline"
             size="sm"
+            className="flex-1 sm:flex-none"
             disabled={page >= totalPages}
             onClick={() => onPageChange(page + 1)}
           >

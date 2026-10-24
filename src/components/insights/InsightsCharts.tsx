@@ -24,7 +24,7 @@ const FALLBACK_COLORS = ["#10b981", "#0ea5e9", "#f59e0b", "#8b5cf6", "#f43f5e", 
 
 function ChartEmpty({ message }: { message: string }) {
   return (
-    <div className="text-muted-foreground flex h-[220px] items-center justify-center rounded-md border border-dashed text-sm">
+    <div className="text-muted-foreground flex h-[220px] items-center justify-center rounded-md bg-muted/20 text-sm dark:bg-muted/12">
       {message}
     </div>
   );

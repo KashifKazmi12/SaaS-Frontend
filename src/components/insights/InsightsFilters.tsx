@@ -101,7 +101,7 @@ export function InsightsFilters({
   }
 
   return (
-    <div className="rounded-lg border bg-card px-3 py-2">
+    <div className="rounded-lg border border-border/45 bg-muted/20 px-3 py-2 dark:bg-muted/15">
       <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           {groups.length <= 1 ? (
@@ -114,10 +114,10 @@ export function InsightsFilters({
           ) : null}
           <span className="text-muted-foreground text-xs">{rangeCaption}</span>
           {groups.length > 1 || businesses.length > 1 ? (
-            <span className="bg-border hidden h-4 w-px sm:block" />
+            <span className="bg-border/80 hidden h-4 w-px sm:block" />
           ) : null}
           {groups.length > 1 ? (
-            <div className="flex h-8 min-w-[200px] items-center rounded-md border bg-background pl-2.5">
+            <div className="flex h-8 min-w-[200px] items-center rounded-md border border-border/45 bg-background/70 pl-2.5 dark:bg-background/30">
               <span className="text-muted-foreground shrink-0 text-xs">Group</span>
               <BusinessGroupSelect
                 id="insights-group"
@@ -134,7 +134,7 @@ export function InsightsFilters({
             </div>
           ) : null}
           {businesses.length > 1 ? (
-            <div className="flex h-8 min-w-[200px] items-center rounded-md border bg-background pl-2.5">
+            <div className="flex h-8 min-w-[200px] items-center rounded-md border border-border/45 bg-background/70 pl-2.5 dark:bg-background/30">
               <span className="text-muted-foreground shrink-0 text-xs">Branch</span>
               <BusinessSelect
                 id="insights-branch"
@@ -153,7 +153,7 @@ export function InsightsFilters({
           ) : null}
         </div>
 
-        <div className="bg-muted inline-flex w-fit flex-wrap rounded-md p-0.5">
+        <div className="bg-background/70 inline-flex w-fit flex-wrap rounded-md p-0.5 dark:bg-background/35">
           {INSIGHTS_RANGE_OPTIONS.map((option) => (
             <Button
               key={option.value}
@@ -165,8 +165,8 @@ export function InsightsFilters({
               className={cn(
                 "h-7 rounded-md px-2.5 text-xs",
                 range === option.value
-                  ? "bg-background text-foreground shadow-sm hover:bg-background"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "bg-card text-foreground shadow-sm ring-1 ring-border/50 hover:bg-card dark:bg-white/8 dark:ring-white/8 dark:hover:bg-white/8"
+                  : "text-muted-foreground hover:bg-transparent hover:text-foreground"
               )}
             >
               {option.label}

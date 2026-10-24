@@ -57,11 +57,13 @@ export function MediaImage({ src, alt = "", className, ...imgProps }: MediaImage
     return <span className={cn("inline-block bg-muted", className)} aria-hidden />;
   }
 
+  const crossOrigin = crossOriginForMediaUrl(src);
+
   return (
     <img
       src={src}
       alt={alt}
-      crossOrigin={crossOriginForMediaUrl(src)}
+      {...(crossOrigin ? { crossOrigin } : {})}
       className={className}
       {...imgProps}
     />

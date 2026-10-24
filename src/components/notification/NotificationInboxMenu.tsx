@@ -98,7 +98,10 @@ export function NotificationInboxMenu() {
         )}
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="end" className="w-[380px] overflow-hidden p-0">
+      <DropdownMenuContent
+        align="end"
+        className="w-[min(24rem,calc(100vw-1.5rem))] overflow-hidden p-0"
+      >
         <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-3">
           <div>
             <p className="text-sm font-semibold">Notifications</p>

@@ -36,17 +36,29 @@ export function CrudDialog({
 }: CrudDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn("sm:max-w-lg", className)}>
+      <DialogContent
+        className={cn(
+          "max-h-[90dvh] w-[calc(100%-1.5rem)] overflow-y-auto sm:max-w-lg",
+          className
+        )}
+      >
         <DialogHeader>
           <DialogTitle>{editing ? editTitle : createTitle}</DialogTitle>
         </DialogHeader>
         <form className="space-y-4" onSubmit={onSubmit}>
           {children}
-          <DialogFooter>
-            <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              variant="outline"
+              type="button"
+              className="w-full sm:w-auto"
+              onClick={() => onOpenChange(false)}
+            >
               Cancel
             </Button>
-            <Button type="submit">{editing ? editSubmitLabel : createSubmitLabel}</Button>
+            <Button type="submit" className="w-full sm:w-auto">
+              {editing ? editSubmitLabel : createSubmitLabel}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

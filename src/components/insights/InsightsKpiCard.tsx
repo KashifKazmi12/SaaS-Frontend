@@ -24,7 +24,7 @@ export function InsightsKpiCard({
   accent?: keyof typeof accentStyles;
 }) {
   return (
-    <div className="rounded-lg border bg-card px-3 py-2.5">
+    <div className="rounded-lg border border-border/45 bg-muted/20 px-3 py-2.5 dark:bg-muted/15">
       <div className="flex items-center justify-between gap-2">
         <p className="text-muted-foreground truncate text-xs">{label}</p>
         <div className={cn("flex size-6 shrink-0 items-center justify-center rounded-md", accentStyles[accent])}>

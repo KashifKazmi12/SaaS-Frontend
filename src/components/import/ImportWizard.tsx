@@ -316,7 +316,7 @@ export function ImportWizard({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="flex max-h-[90vh] w-full flex-col gap-4 overflow-hidden sm:max-w-3xl">
+      <DialogContent className="flex max-h-[90dvh] w-[calc(100%-1.5rem)] flex-col gap-4 overflow-hidden sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <StepRail

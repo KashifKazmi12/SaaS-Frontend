@@ -186,7 +186,7 @@ export default function DashboardPage() {
           {summary.loading || !scope.ready ? (
             <InsightsKpiSkeleton />
           ) : !kpis ? (
-            <div className="text-muted-foreground rounded-lg border border-dashed py-8 text-center text-sm">
+            <div className="text-muted-foreground rounded-lg bg-muted/20 py-8 text-center text-sm dark:bg-muted/12">
               No insight data yet. Try another period or branch.
             </div>
           ) : (
@@ -248,16 +248,16 @@ export default function DashboardPage() {
             <InsightsChartsSkeleton />
           ) : (
             <section className="grid gap-2 lg:grid-cols-3">
-              <Card size="sm" className="lg:col-span-2">
-                <CardHeader className="border-b py-2">
+              <Card size="sm" className="border-0 bg-muted/20 ring-border/40 dark:bg-muted/15 lg:col-span-2">
+                <CardHeader className="border-b border-border/40 py-2">
                   <CardTitle className="text-sm">Sales trend</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-2">
                   <SalesByDayChart rows={charts.data?.byDay || []} money={money} />
                 </CardContent>
               </Card>
-              <Card size="sm">
-                <CardHeader className="border-b py-2">
+              <Card size="sm" className="border-0 bg-muted/20 ring-border/40 dark:bg-muted/15">
+                <CardHeader className="border-b border-border/40 py-2">
                   <CardTitle className="text-sm">Order status</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-2">
@@ -280,8 +280,8 @@ export default function DashboardPage() {
             <InsightsBreakdownsSkeleton />
           ) : (
             <section className="grid gap-2 lg:grid-cols-3">
-              <Card size="sm">
-                <CardHeader className="border-b py-2">
+              <Card size="sm" className="border-0 bg-muted/20 ring-border/40 dark:bg-muted/15">
+                <CardHeader className="border-b border-border/40 py-2">
                   <CardTitle className="text-sm">Sales by branch</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-1">
@@ -296,8 +296,8 @@ export default function DashboardPage() {
                   />
                 </CardContent>
               </Card>
-              <Card size="sm">
-                <CardHeader className="border-b py-2">
+              <Card size="sm" className="border-0 bg-muted/20 ring-border/40 dark:bg-muted/15">
+                <CardHeader className="border-b border-border/40 py-2">
                   <CardTitle className="text-sm">Top products</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-1">
@@ -312,8 +312,8 @@ export default function DashboardPage() {
                   />
                 </CardContent>
               </Card>
-              <Card size="sm">
-                <CardHeader className="border-b py-2">
+              <Card size="sm" className="border-0 bg-muted/20 ring-border/40 dark:bg-muted/15">
+                <CardHeader className="border-b border-border/40 py-2">
                   <CardTitle className="text-sm">Payment status</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-2">

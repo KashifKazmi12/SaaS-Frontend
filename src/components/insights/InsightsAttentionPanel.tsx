@@ -34,8 +34,8 @@ export function InsightsAttentionPanel({
         : "text-primary";
 
   return (
-    <Card size="sm" className="h-full overflow-hidden">
-      <CardHeader className="border-b py-2">
+    <Card size="sm" className="h-full overflow-hidden border-0 bg-muted/20 ring-border/40 dark:bg-muted/15">
+      <CardHeader className="border-b border-border/40 py-2">
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
             <Icon className={cn("size-3.5 shrink-0", toneClass)} />

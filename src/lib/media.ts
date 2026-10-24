@@ -110,11 +110,12 @@ export function resolveCategoryImageUrl(imagePath?: string): string {
 }
 
 /**
- * Cross-origin S3/CDN URLs (especially SVG) need CORS mode so Chrome ORB
- * does not block them in <img>. Same-origin /media paths stay unset.
+ * Display-only <img> must not force crossOrigin. With crossOrigin="anonymous",
+ * Chrome requires the CDN/S3 to allow this page's Origin — production may be
+ * listed, but localhost often is not, so thumbnails break while the same URL
+ * still opens fine in a new tab. SVGs that need CORS use loadSvgMarkup() instead.
  */
-export function crossOriginForMediaUrl(src: string): "anonymous" | undefined {
-  if (/^https?:\/\//i.test(String(src || "").trim())) return "anonymous";
+export function crossOriginForMediaUrl(_src: string): "anonymous" | undefined {
   return undefined;
 }
 

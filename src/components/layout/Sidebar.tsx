@@ -16,8 +16,10 @@ import {
   ShoppingBag,
   Warehouse,
   CreditCard,
+  X,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { useLayout } from "@/context/LayoutContext";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -76,8 +78,12 @@ function SidebarTip({
 export function Sidebar() {
   const { navigation } = useAuth();
   const location = useLocation();
+  const { mobileNavOpen, closeMobileNav } = useLayout();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [collapsed, setCollapsed] = useState(readCollapsed);
+
+  // On mobile the drawer is always labeled; desktop keeps collapse preference.
+  const desktopCollapsed = collapsed;
 
   useEffect(() => {
     try {
@@ -108,8 +114,8 @@ export function Sidebar() {
     setCollapsed((current) => !current);
   }
 
-  function toggleExpanded(id: string, childActive: boolean) {
-    if (collapsed) {
+  function toggleExpanded(id: string, childActive: boolean, isMobile: boolean) {
+    if (!isMobile && desktopCollapsed) {
       setCollapsed(false);
       setExpanded((current) => ({ ...current, [id]: true }));
       return;
@@ -123,24 +129,21 @@ export function Sidebar() {
     });
   }
 
-  return (
-    <TooltipProvider>
-      <aside
-        className={cn(
-          "flex h-screen shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out",
-          collapsed ? "w-16" : "w-64"
-        )}
-      >
+  function renderNav(isMobile: boolean) {
+    const iconOnly = !isMobile && desktopCollapsed;
+
+    return (
+      <>
         <div
           className={cn(
             "flex items-center gap-3 py-5",
-            collapsed ? "justify-center px-2" : "px-5"
+            iconOnly ? "justify-center px-2" : "px-5"
           )}
         >
           <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
             <LayoutGrid className="size-4" />
           </div>
-          {!collapsed ? (
+          {!iconOnly ? (
             <div className="min-w-0 flex-1">
               <p className="text-xs uppercase tracking-wide text-sidebar-foreground/60">
                 Workspace
@@ -149,6 +152,18 @@ export function Sidebar() {
                 Core System
               </h1>
             </div>
+          ) : null}
+          {isMobile ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="text-sidebar-foreground hover:bg-sidebar-accent/70"
+              onClick={closeMobileNav}
+              aria-label="Close menu"
+            >
+              <X className="size-4" />
+            </Button>
           ) : null}
         </div>
 
@@ -165,12 +180,12 @@ export function Sidebar() {
               !hasChildren &&
               (location.pathname === item.path ||
                 location.pathname.startsWith(`${item.path}/`));
-            const isExpanded = !collapsed && (expanded[item.id] ?? childActive);
+            const isExpanded = !iconOnly && (expanded[item.id] ?? childActive);
             const active = parentActive || childActive;
 
             const rowClassName = cn(
               "flex w-full items-center rounded-lg text-sm font-medium transition-colors",
-              collapsed ? "justify-center px-0 py-2.5" : "gap-2 px-3 py-2",
+              iconOnly ? "justify-center px-0 py-2.5" : "gap-2 px-3 py-2.5",
               active
                 ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-sm"
                 : "text-sidebar-foreground hover:bg-sidebar-accent/70"
@@ -181,13 +196,13 @@ export function Sidebar() {
             const row = hasChildren ? (
               <button
                 type="button"
-                onClick={() => toggleExpanded(item.id, childActive)}
+                onClick={() => toggleExpanded(item.id, childActive, isMobile)}
                 className={rowClassName}
                 aria-expanded={isExpanded}
                 aria-label={item.name}
               >
                 {iconEl}
-                {!collapsed ? (
+                {!iconOnly ? (
                   <>
                     <span className="flex-1 text-left">{item.name}</span>
                     <ChevronDown
@@ -200,15 +215,20 @@ export function Sidebar() {
                 ) : null}
               </button>
             ) : (
-              <NavLink to={item.path} className={rowClassName} aria-label={item.name}>
+              <NavLink
+                to={item.path}
+                className={rowClassName}
+                aria-label={item.name}
+                onClick={isMobile ? closeMobileNav : undefined}
+              >
                 {iconEl}
-                {!collapsed ? item.name : null}
+                {!iconOnly ? item.name : null}
               </NavLink>
             );
 
             return (
               <div key={item.id} className="space-y-1">
-                <SidebarTip collapsed={collapsed} label={item.name}>
+                <SidebarTip collapsed={iconOnly} label={item.name}>
                   {row}
                 </SidebarTip>
 
@@ -218,9 +238,10 @@ export function Sidebar() {
                       <NavLink
                         key={child.id}
                         to={child.path}
+                        onClick={isMobile ? closeMobileNav : undefined}
                         className={({ isActive }) =>
                           cn(
-                            "block rounded-lg px-3 py-2 text-sm transition-colors",
+                            "block rounded-lg px-3 py-2.5 text-sm transition-colors",
                             isActive
                               ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                               : "text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground"
@@ -237,36 +258,79 @@ export function Sidebar() {
           })}
         </nav>
 
-        <div
+        {!isMobile ? (
+          <div
+            className={cn(
+              "border-t border-sidebar-border p-2",
+              iconOnly && "flex justify-center"
+            )}
+          >
+            <SidebarTip collapsed={iconOnly} label="Expand sidebar">
+              <Button
+                type="button"
+                variant="ghost"
+                size={iconOnly ? "icon" : "default"}
+                onClick={toggleCollapsed}
+                className={cn(
+                  "text-sidebar-foreground hover:bg-sidebar-accent/70",
+                  !iconOnly && "w-full justify-start gap-2"
+                )}
+                aria-label={iconOnly ? "Expand sidebar" : "Collapse sidebar"}
+              >
+                {iconOnly ? (
+                  <PanelLeft className="size-4" />
+                ) : (
+                  <>
+                    <PanelLeftClose className="size-4" />
+                    <span>Collapse</span>
+                  </>
+                )}
+              </Button>
+            </SidebarTip>
+          </div>
+        ) : null}
+      </>
+    );
+  }
+
+  return (
+    <TooltipProvider>
+      {/* Desktop sidebar */}
+      <aside
+        className={cn(
+          "hidden h-screen shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out md:flex",
+          desktopCollapsed ? "w-16" : "w-64"
+        )}
+      >
+        {renderNav(false)}
+      </aside>
+
+      {/* Mobile drawer */}
+      <div
+        className={cn(
+          "fixed inset-0 z-50 md:hidden",
+          mobileNavOpen ? "pointer-events-auto" : "pointer-events-none"
+        )}
+        aria-hidden={!mobileNavOpen}
+      >
+        <button
+          type="button"
           className={cn(
-            "border-t border-sidebar-border p-2",
-            collapsed && "flex justify-center"
+            "absolute inset-0 bg-black/40 transition-opacity",
+            mobileNavOpen ? "opacity-100" : "opacity-0"
+          )}
+          aria-label="Close menu"
+          onClick={closeMobileNav}
+        />
+        <aside
+          className={cn(
+            "absolute inset-y-0 left-0 flex w-[min(20rem,88vw)] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-xl transition-transform duration-200 ease-out",
+            mobileNavOpen ? "translate-x-0" : "-translate-x-full"
           )}
         >
-          <SidebarTip collapsed={collapsed} label="Expand sidebar">
-            <Button
-              type="button"
-              variant="ghost"
-              size={collapsed ? "icon" : "default"}
-              onClick={toggleCollapsed}
-              className={cn(
-                "text-sidebar-foreground hover:bg-sidebar-accent/70",
-                !collapsed && "w-full justify-start gap-2"
-              )}
-              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            >
-              {collapsed ? (
-                <PanelLeft className="size-4" />
-              ) : (
-                <>
-                  <PanelLeftClose className="size-4" />
-                  <span>Collapse</span>
-                </>
-              )}
-            </Button>
-          </SidebarTip>
-        </div>
-      </aside>
+          {renderNav(true)}
+        </aside>
+      </div>
     </TooltipProvider>
   );
 }

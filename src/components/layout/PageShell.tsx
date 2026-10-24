@@ -19,19 +19,31 @@ export function PageShell({
       {(title || description || action) && (
         <div
           className={cn(
-            "flex flex-col sm:flex-row sm:items-center sm:justify-between",
-            compact ? "gap-2" : "gap-4 sm:items-start"
+            "flex flex-col sm:flex-row sm:justify-between",
+            compact ? "gap-2 sm:items-center" : "gap-3 sm:items-start sm:gap-4"
           )}
         >
-          <div>
-            {title && <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>}
+          <div className="min-w-0">
+            {title && (
+              <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{title}</h1>
+            )}
             {description && (
-              <p className={title ? "mt-1 text-sm text-muted-foreground" : "text-sm text-muted-foreground"}>
+              <p
+                className={
+                  title
+                    ? "mt-1 text-sm text-muted-foreground"
+                    : "text-sm text-muted-foreground"
+                }
+              >
                 {description}
               </p>
             )}
           </div>
-          {action}
+          {action ? (
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+              {action}
+            </div>
+          ) : null}
         </div>
       )}
       {children}

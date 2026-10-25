@@ -24,7 +24,7 @@ import { useCrudPage } from "@/hooks/useCrudPage";
 import { useListQuery } from "@/hooks/useListQuery";
 import { getBusinessDisplayName, shouldSendBusinessIdOnCreate } from "@/lib/business";
 import { ALL_FILTER, STATUS_FILTER_OPTIONS } from "@/lib/listFilters";
-import { resolveCategoryImageUrl } from "@/lib/media";
+import { isUsableMediaPath, resolveCategoryImageUrl } from "@/lib/media";
 import { buildEntityPayload, formatCustomListValue } from "@/constants/entityFields";
 import { MODULE_PATHS } from "@/lib/modulePaths";
 import type { CategoryRecord, EntityFieldDefinition } from "@/types";
@@ -151,7 +151,8 @@ export default function CategoriesPage() {
 
   function populateForm(category: CategoryRecord) {
     setFormValues(categoryFormValues(category));
-    setImagePath(category.imagePath || "");
+    // Import placeholder paths are not real uploads — show empty upload UI instead of a broken preview.
+    setImagePath(isUsableMediaPath(category.imagePath) ? category.imagePath || "" : "");
     setBusinessId(
       typeof category.business === "object" && category.business
         ? category.business._id
@@ -170,12 +171,7 @@ export default function CategoriesPage() {
     }
 
     const payload = buildEntityPayload("category", formValues, schemaFields);
-    payload.imagePath = imagePath;
-
-    if (!imagePath.trim()) {
-      crud.setError("Category image is required.");
-      return;
-    }
+    payload.imagePath = imagePath.trim();
 
     if (!crud.editing && shouldSendBusinessIdOnCreate(user)) {
       payload.businessId = businessId;
@@ -317,11 +313,10 @@ export default function CategoriesPage() {
             folder="categories"
             value={imagePath}
             onChange={setImagePath}
-            required
             recommendedSize={{
               width: 600,
               height: 600,
-              tip: "Square images work best. Other ratios are cropped with cover fit.",
+              tip: "Optional. Square images work best. Other ratios are cropped with cover fit.",
             }}
           />
         </CrudDialog>

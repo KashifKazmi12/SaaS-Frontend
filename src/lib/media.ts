@@ -100,13 +100,28 @@ export function getFeaturedImagePath(images: ProductImage[]): string {
   return featured?.path || images[0]?.path || "";
 }
 
-/** Static asset used when a category has no uploaded image. */
+/** Static asset used by storefront / legacy callers when a category has no upload. */
 export const DEFAULT_CATEGORY_IMAGE = "/category-default.svg";
 
+/** Sentinel used by product import when auto-creating a category without a real image. */
+export const CATEGORY_PLACEHOLDER_PATH = "categories/placeholder.png";
+
+/** True when the stored path is a real upload (not empty / import placeholder). */
+export function isUsableMediaPath(path?: string | null): boolean {
+  const normalized = normalizeMediaPath(path || "");
+  if (!normalized) return false;
+  if (normalized === CATEGORY_PLACEHOLDER_PATH) return false;
+  if (/placeholder\.(png|jpe?g|webp|gif)$/i.test(normalized)) return false;
+  return true;
+}
+
+/**
+ * Admin list/thumbs: return "" when there is no real image so MediaThumbnail
+ * shows the no-image avatar instead of a broken <img>.
+ */
 export function resolveCategoryImageUrl(imagePath?: string): string {
-  const path = normalizeMediaPath(imagePath || "");
-  if (!path) return DEFAULT_CATEGORY_IMAGE;
-  return resolveMediaUrl(path);
+  if (!isUsableMediaPath(imagePath)) return "";
+  return resolveMediaUrl(imagePath || "");
 }
 
 /**

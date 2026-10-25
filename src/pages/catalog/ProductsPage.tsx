@@ -129,7 +129,7 @@ function draftToPayload(draft: VariationDraft) {
 }
 
 export default function ProductsPage() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const { isSuperAdmin, showBusinessColumn, singleAssignedBusiness } = useBusinessVisibility();
   const crud = useCrudPage<ProductRecord>();
   const list = useListQuery();
@@ -683,6 +683,7 @@ export default function ProductsPage() {
           productId={variationsProduct?._id ?? null}
           productName={variationsProduct?.name ?? "Product"}
           currency={currencyFromBusiness(variationsProduct?.business)}
+          canEdit={can(MODULE_PATH, "update")}
           onUpdated={loadProducts}
         />
       </PageShell>

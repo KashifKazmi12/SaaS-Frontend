@@ -1,9 +1,10 @@
 import type { FormEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ImageIcon } from "lucide-react";
+import { ArrowLeft, ImageIcon, Receipt } from "lucide-react";
 import { api } from "@/lib/api";
 import { DynamicEntityFields } from "@/components/entity-fields/DynamicEntityFields";
+import { OrderCreateSuccessDialog } from "@/components/orders/OrderCreateSuccessDialog";
 import { StripePaymentLinkPanel } from "@/components/orders/StripePaymentLinkPanel";
 import { PageShell } from "@/components/layout/PageShell";
 import { RequirePermission } from "@/components/layout/RouteGuards";
@@ -145,6 +146,7 @@ export default function OrderDetailPage() {
   const [message, setMessage] = useState("");
   const [checkoutUrl, setCheckoutUrl] = useState("");
   const [paymentLinkLoading, setPaymentLinkLoading] = useState(false);
+  const [receiptOpen, setReceiptOpen] = useState(false);
   const [status, setStatus] = useState<OrderStatus>("pending");
   const [paymentStatus, setPaymentStatus] = useState<OrderPaymentStatus>("unpaid");
   const [paymentMethod, setPaymentMethod] = useState<OrderPaymentMethod>("unpaid");
@@ -428,10 +430,18 @@ export default function OrderDetailPage() {
                 : "View this order. You do not have permission to edit."
         }
         action={
-          <Button type="button" variant="outline" onClick={() => navigate(MODULE_PATH)}>
-            <ArrowLeft className="size-4" />
-            Back to orders
-          </Button>
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+            {order ? (
+              <Button type="button" variant="outline" onClick={() => setReceiptOpen(true)}>
+                <Receipt className="size-4" />
+                View receipt
+              </Button>
+            ) : null}
+            <Button type="button" variant="outline" onClick={() => navigate(MODULE_PATH)}>
+              <ArrowLeft className="size-4" />
+              Back to orders
+            </Button>
+          </div>
         }
       >
         <PageAlerts error={error} message={message} />
@@ -838,6 +848,20 @@ export default function OrderDetailPage() {
             </div>
           </form>
         )}
+
+        <OrderCreateSuccessDialog
+          open={receiptOpen && Boolean(order)}
+          order={order}
+          checkoutUrl={checkoutUrl || null}
+          businessName={orderBranchName}
+          variant="receipt"
+          showViewDetail={false}
+          onAddNew={() => {
+            setReceiptOpen(false);
+            navigate(`${MODULE_PATH}/new`);
+          }}
+          onOpenChange={setReceiptOpen}
+        />
       </PageShell>
     </RequirePermission>
   );

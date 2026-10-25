@@ -25,8 +25,12 @@ interface OrderCreateSuccessDialogProps {
   checkoutUrl?: string | null;
   businessName?: string;
   onAddNew: () => void;
-  onViewDetail: () => void;
+  /** Omit or set false on the detail page — you're already viewing the order. */
+  showViewDetail?: boolean;
+  onViewDetail?: () => void;
   onOpenChange: (open: boolean) => void;
+  /** `create` after placing an order; `receipt` when reopening from detail. */
+  variant?: "create" | "receipt";
 }
 
 function paymentMethodLabel(method: string) {
@@ -47,9 +51,12 @@ export function OrderCreateSuccessDialog({
   checkoutUrl,
   businessName,
   onAddNew,
+  showViewDetail = true,
   onViewDetail,
   onOpenChange,
+  variant = "create",
 }: OrderCreateSuccessDialogProps) {
+  const isReceipt = variant === "receipt";
   const hasCard =
     Boolean(checkoutUrl) &&
     order?.paymentMethod === "stripe" &&
@@ -115,12 +122,14 @@ export function OrderCreateSuccessDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg" showCloseButton>
         <DialogHeader>
-          <DialogTitle>Order created</DialogTitle>
+          <DialogTitle>{isReceipt ? "Receipt" : "Order created"}</DialogTitle>
           <DialogDescription>
             {order.orderNumber}
             {hasCard
               ? " · Card payment ready. Tab between actions, or use 1 / 2 for tabs."
-              : " · Add another order, or open this one."}
+              : isReceipt
+                ? " · Print this receipt, or start another order."
+                : " · Add another order, or open this one."}
           </DialogDescription>
         </DialogHeader>
 
@@ -209,9 +218,11 @@ export function OrderCreateSuccessDialog({
             Print receipt
           </Button>
           <div className="flex flex-col-reverse gap-2 sm:flex-row">
-            <Button type="button" variant="outline" onClick={onViewDetail}>
-              View detail
-            </Button>
+            {showViewDetail && onViewDetail ? (
+              <Button type="button" variant="outline" onClick={onViewDetail}>
+                View detail
+              </Button>
+            ) : null}
             <Button type="button" autoFocus onClick={onAddNew}>
               Add new order
             </Button>

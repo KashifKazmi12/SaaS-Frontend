@@ -34,10 +34,12 @@ export async function parseExcelFile(file: File): Promise<ParsedSheet> {
   }
 
   const sheet = workbook.Sheets[sheetName];
+  // raw: true keeps numeric cells as numbers. raw: false formats them with
+  // thousand separators (e.g. "2,500.00"), which then fail Number(...) on import.
   const matrix = XLSX.utils.sheet_to_json<(string | number | null)[]>(sheet, {
     header: 1,
     defval: "",
-    raw: false,
+    raw: true,
   });
 
   if (!matrix.length) {

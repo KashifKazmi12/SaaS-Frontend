@@ -283,7 +283,7 @@ export function ImportWizard({
     setSaving(true);
     setError("");
     setImportProgress("");
-    const chunkSize = 200;
+    const chunkSize = 1000;
     const combined: ImportResultSummary = {
       created: 0,
       updated: 0,

@@ -138,21 +138,46 @@ export function AttentionStockRow({
   subtitle,
   quantity,
   level,
+  onClick,
 }: {
   title: string;
   subtitle: string;
   quantity: number;
   level: "low" | "out";
+  onClick?: () => void;
 }) {
-  return (
-    <div className="flex items-center justify-between gap-2 rounded-md px-1.5 py-1.5">
+  const content = (
+    <>
       <span className="min-w-0">
         <span className="block truncate text-sm font-medium">{title}</span>
         <span className="text-muted-foreground block truncate text-[11px]">{subtitle}</span>
       </span>
-      <Badge variant={level === "out" ? "destructive" : "secondary"} className="h-5 tabular-nums">
-        {quantity}
-      </Badge>
+      <span className="flex shrink-0 items-center gap-1">
+        <Badge variant={level === "out" ? "destructive" : "secondary"} className="h-5 tabular-nums">
+          {quantity}
+        </Badge>
+        {onClick ? (
+          <ChevronRight className="text-muted-foreground size-3.5 opacity-0 group-hover:opacity-100" />
+        ) : null}
+      </span>
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="hover:bg-muted/70 group flex w-full items-center justify-between gap-2 rounded-md px-1.5 py-1.5 text-left"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-md px-1.5 py-1.5">
+      {content}
     </div>
   );
 }

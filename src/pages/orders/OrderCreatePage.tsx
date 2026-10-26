@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { BusinessGroupSelect, BusinessSelect } from "@/components/business";
 import { DynamicEntityFields } from "@/components/entity-fields/DynamicEntityFields";
 import { OrderCreateSuccessDialog } from "@/components/orders/OrderCreateSuccessDialog";
+import { OrderProductSelect } from "@/components/orders/OrderProductSelect";
 import { PageShell } from "@/components/layout/PageShell";
 import { RequirePermission } from "@/components/layout/RouteGuards";
 import {
@@ -44,12 +45,19 @@ import type {
 } from "@/types";
 
 const MODULE_PATH = MODULE_PATHS.ORDERS;
+/** Default counter bucket when no specific walk-in name is needed. */
+const DEFAULT_WALK_IN_CUSTOMER_NAME = "Walk-in";
 
 function resolvePortalMethods(value?: string[]): CheckoutPaymentMethod[] {
   const selected = CHECKOUT_PAYMENT_METHOD_OPTIONS.map((item) => item.value).filter((method) =>
     (value || []).includes(method)
   );
   return selected.length ? selected : [...DEFAULT_PORTAL_PAYMENT_METHODS];
+}
+
+function preferredPaymentMethod(methods: CheckoutPaymentMethod[]): OrderPaymentMethod {
+  if (methods.includes("cash")) return "cash";
+  return (methods[0] || "cash") as OrderPaymentMethod;
 }
 
 interface DraftItem {
@@ -100,7 +108,9 @@ export default function OrderCreatePage() {
   const { user } = useAuth();
   const sessionGroups = user?.businessGroups ?? [];
   const sessionBusinesses = user?.businesses ?? [];
-  const [catalog, setCatalog] = useState<OrderCatalogProduct[]>([]);
+  const [productCache, setProductCache] = useState<Record<string, OrderCatalogProduct>>(
+    {}
+  );
   const [groupId, setGroupId] = useState(
     () => (sessionGroups.length === 1 ? sessionGroups[0].id : "")
   );
@@ -110,8 +120,8 @@ export default function OrderCreatePage() {
     const forGroup = sessionBusinesses.filter((b) => b.businessGroupId === gid);
     return forGroup.length === 1 ? forGroup[0].id : "";
   });
-  const [customerName, setCustomerName] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<OrderPaymentMethod>("unpaid");
+  const [customerName, setCustomerName] = useState(DEFAULT_WALK_IN_CUSTOMER_NAME);
+  const [paymentMethod, setPaymentMethod] = useState<OrderPaymentMethod>("cash");
   const [discountMode, setDiscountMode] = useState<"fixed" | "percent">("fixed");
   const [discountInput, setDiscountInput] = useState("");
   const [portalPaymentMethods, setPortalPaymentMethods] = useState<CheckoutPaymentMethod[]>(
@@ -150,7 +160,7 @@ export default function OrderCreatePage() {
     return roundMoney(
       items.reduce((sum, item) => {
         if (!item.productId) return sum;
-        const product = catalog.find((row) => row._id === item.productId);
+        const product = productCache[item.productId];
         if (!product) return sum;
         const qty = Math.max(1, Math.floor(Number(item.quantity) || 1));
         const catalogPrice = catalogUnitPrice(product, item.variationId);
@@ -161,7 +171,7 @@ export default function OrderCreatePage() {
         return sum + unit * qty;
       }, 0)
     );
-  }, [items, catalog]);
+  }, [items, productCache]);
 
   const discountValue = useMemo(
     () => Math.max(0, Number(discountInput) || 0),
@@ -217,9 +227,9 @@ export default function OrderCreatePage() {
       return;
     }
 
-    setCustomerName("");
+    setCustomerName(DEFAULT_WALK_IN_CUSTOMER_NAME);
     setItems([newDraftItem()]);
-    setCatalog([]);
+    setProductCache({});
     setSchemaFields([]);
     setFormValues({});
     setDiscountInput("");
@@ -239,7 +249,7 @@ export default function OrderCreatePage() {
 
   useEffect(() => {
     if (!groupId || !businessId) {
-      setCatalog([]);
+      setProductCache({});
       setSchemaFields([]);
       setFormValues({});
       setItems([newDraftItem()]);
@@ -249,28 +259,24 @@ export default function OrderCreatePage() {
     let cancelled = false;
     setSchemaLoading(true);
     setItems([newDraftItem()]);
+    setProductCache({});
 
     Promise.all([
-      api.getOrderCatalogOptions({ groupId, businessId }),
+      // Lightweight call: payment methods only (products load on demand in the picker).
+      api.getOrderCatalogOptions({ groupId, businessId, page: 1, limit: 1 }),
       api.getOrderSchema({ businessId }),
     ])
-      .then(([products, schema]) => {
+      .then(([catalogMeta, schema]) => {
         if (cancelled) return;
-        setCatalog(products.items);
         setSchemaFields(schema.fields);
         setFormValues(orderFormValues(schema.fields));
-        const methods = resolvePortalMethods(products.portalPaymentMethods);
+        const methods = resolvePortalMethods(catalogMeta.portalPaymentMethods);
         setPortalPaymentMethods(methods);
-        setPaymentMethod((current) =>
-          methods.includes(current as CheckoutPaymentMethod)
-            ? current
-            : ((methods[0] || "unpaid") as OrderPaymentMethod)
-        );
+        setPaymentMethod(preferredPaymentMethod(methods));
       })
       .catch((err) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Unable to load products or fields.");
-          setCatalog([]);
+          setError(err instanceof Error ? err.message : "Unable to load order fields.");
           setSchemaFields([]);
           setFormValues({});
         }
@@ -304,6 +310,9 @@ export default function OrderCreatePage() {
       next.splice(index + 1, 0, draft);
       return next;
     });
+    window.setTimeout(() => {
+      document.getElementById(`product-${draft.key}`)?.focus();
+    }, 0);
   }
 
   function handleItemEnter(afterKey: string) {
@@ -311,42 +320,66 @@ export default function OrderCreatePage() {
     insertItemAfter(afterKey);
   }
 
+  function focusItemPrice(itemKey: string) {
+    window.setTimeout(() => {
+      const price = document.getElementById(`price-${itemKey}`) as HTMLInputElement | null;
+      if (price && !price.disabled) {
+        price.focus();
+        price.select?.();
+        return;
+      }
+      document.getElementById(`product-${itemKey}`)?.focus();
+    }, 0);
+  }
+
   function removeItemRow(itemKey: string) {
     setItems((current) => {
+      const index = current.findIndex((row) => row.key === itemKey);
+      if (index < 0) return current;
+
+      let focusKey = "";
+      let next: DraftItem[];
+
       if (current.length <= 1) {
-        return [newDraftItem()];
+        const draft = newDraftItem();
+        next = [draft];
+        focusKey = draft.key;
+      } else if (index > 0) {
+        // Deleted a later row → stay on previous row's price.
+        focusKey = current[index - 1].key;
+        next = current.filter((row) => row.key !== itemKey);
+      } else {
+        // Deleted the first row → next row becomes first; focus its price.
+        focusKey = current[index + 1].key;
+        next = current.filter((row) => row.key !== itemKey);
       }
-      return current.filter((row) => row.key !== itemKey);
+
+      focusItemPrice(focusKey);
+      return next;
     });
   }
 
   function handleItemRowKeyDown(event: KeyboardEvent<HTMLDivElement>, itemKey: string) {
     if (event.key !== "Delete") return;
-    const target = event.target as HTMLElement | null;
-    // Don't remove while a dropdown is open or while editing a text/number field.
-    if (target?.closest('[data-slot="select-content"], [data-slot="combobox-content"]')) return;
-    if (target?.closest('[data-slot="select-trigger"]')?.getAttribute("aria-expanded") === "true") {
-      return;
-    }
-    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
+    // Delete removes the whole line from any field in the row (Product / Qty / Price / etc.).
+    // Backspace still edits text normally.
     event.preventDefault();
     event.stopPropagation();
     removeItemRow(itemKey);
   }
 
-  function handleQtyKeyDown(event: KeyboardEvent<HTMLInputElement>, itemKey: string) {
+  function handleItemFieldEnter(event: KeyboardEvent<HTMLInputElement>, itemKey: string) {
     if (event.key !== "Enter") return;
     event.preventDefault();
+    event.stopPropagation();
     handleItemEnter(itemKey);
   }
 
   function resetFormForNextOrder() {
-    setCustomerName("");
+    setCustomerName(DEFAULT_WALK_IN_CUSTOMER_NAME);
     setItems([newDraftItem()]);
     setFormValues(orderFormValues(schemaFields));
-    setPaymentMethod(
-      (portalPaymentMethods[0] || "unpaid") as OrderPaymentMethod
-    );
+    setPaymentMethod(preferredPaymentMethod(portalPaymentMethods));
     setDiscountInput("");
     setDiscountMode("fixed");
     setError("");
@@ -392,7 +425,7 @@ export default function OrderCreatePage() {
     const payloadItems = items
       .filter((item) => item.productId)
       .map((item) => {
-        const product = catalog.find((row) => row._id === item.productId);
+        const product = productCache[item.productId];
         const catalogPrice = catalogUnitPrice(product, item.variationId);
         const unitPrice =
           item.unitPrice.trim() === ""
@@ -513,11 +546,11 @@ export default function OrderCreatePage() {
                 <CardContent className="space-y-3 pt-4">
                   {!businessId ? (
                     <p className="text-sm text-muted-foreground">
-                      Select a business to load its products.
+                      Select a business to choose products.
                     </p>
                   ) : (
                     items.map((item) => {
-                      const product = catalog.find((row) => row._id === item.productId);
+                      const product = productCache[item.productId];
                       const imageSrc = product?.imagePath
                         ? resolveMediaUrl(product.imagePath)
                         : "";
@@ -543,27 +576,39 @@ export default function OrderCreatePage() {
                               <ImageIcon className="text-muted-foreground size-4" />
                             )}
                           </div>
-                          <EnumSelect
+                          <OrderProductSelect
                             id={`product-${item.key}`}
-                            label="Product"
+                            groupId={groupId}
+                            businessId={businessId}
                             value={item.productId}
-                            onValueChange={(value) => {
-                              const next = catalog.find((row) => row._id === value);
-                              const nextPrice = next?.hasVariations
-                                ? ""
-                                : String(catalogUnitPrice(next, "") || "");
+                            selectedProduct={product || null}
+                            onSelect={(next) => {
+                              if (!next) {
+                                setProductCache((current) => {
+                                  const copy = { ...current };
+                                  delete copy[item.productId];
+                                  return copy;
+                                });
+                                updateItem(item.key, {
+                                  productId: "",
+                                  variationId: "",
+                                  unitPrice: "",
+                                });
+                                return;
+                              }
+                              setProductCache((current) => ({
+                                ...current,
+                                [next._id]: next,
+                              }));
                               updateItem(item.key, {
-                                productId: value,
+                                productId: next._id,
                                 variationId: "",
-                                unitPrice: nextPrice,
+                                unitPrice: next.hasVariations
+                                  ? ""
+                                  : String(catalogUnitPrice(next, "") || ""),
                               });
                             }}
-                            options={catalog.map((row) => ({
-                              value: row._id,
-                              label: row.name,
-                            }))}
                             required
-                            placeholder={catalog.length ? "Select product" : "No products"}
                             onEnterWhenClosed={() => handleItemEnter(item.key)}
                           />
                           {hasVariations ? (
@@ -586,6 +631,18 @@ export default function OrderCreatePage() {
                             />
                           ) : null}
                           <FormField
+                            id={`qty-${item.key}`}
+                            label="Qty"
+                            type="number"
+                            min={1}
+                            value={item.quantity}
+                            onChange={(event) =>
+                              updateItem(item.key, { quantity: event.target.value })
+                            }
+                            onKeyDown={(event) => handleItemFieldEnter(event, item.key)}
+                            required
+                          />
+                          <FormField
                             id={`price-${item.key}`}
                             label="Price"
                             type="number"
@@ -595,21 +652,10 @@ export default function OrderCreatePage() {
                             onChange={(event) =>
                               updateItem(item.key, { unitPrice: event.target.value })
                             }
+                            onKeyDown={(event) => handleItemFieldEnter(event, item.key)}
                             placeholder={groupCurrency}
                             required={Boolean(item.productId)}
                             disabled={!item.productId || (hasVariations && !item.variationId)}
-                          />
-                          <FormField
-                            id={`qty-${item.key}`}
-                            label="Qty"
-                            type="number"
-                            min={1}
-                            value={item.quantity}
-                            onChange={(event) =>
-                              updateItem(item.key, { quantity: event.target.value })
-                            }
-                            onKeyDown={(event) => handleQtyKeyDown(event, item.key)}
-                            required
                           />
                           <div className="flex items-end">
                             <PermissionIconButton
@@ -639,7 +685,7 @@ export default function OrderCreatePage() {
                     label="Customer name"
                     value={customerName}
                     onChange={(event) => setCustomerName(event.target.value)}
-                    placeholder="Walk-in customer name"
+                    placeholder={DEFAULT_WALK_IN_CUSTOMER_NAME}
                     required
                     autoComplete="off"
                   />

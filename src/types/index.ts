@@ -140,6 +140,11 @@ export interface BusinessGroupRecord {
   isActive: boolean;
 }
 
+export interface BusinessOrderSettings {
+  defaultStatus: "pending" | "confirmed" | "preparing" | "in_transit" | "completed";
+  defaultPaymentStatus: "unpaid" | "paid";
+}
+
 export interface BusinessRecord {
   _id: string;
   name: string;
@@ -151,6 +156,7 @@ export interface BusinessRecord {
   logoPath?: string;
   checkoutPaymentMethods?: import("@/constants/commerce").CheckoutPaymentMethod[];
   portalPaymentMethods?: import("@/constants/commerce").CheckoutPaymentMethod[];
+  orderSettings?: BusinessOrderSettings;
   isActive: boolean;
   businessGroup?: { _id: string; name: string } | string | null;
 }
@@ -525,4 +531,17 @@ export interface RecycleBinRecord {
   subtitle: string;
   context: string;
   deletedAt: string;
+}
+
+export interface ActivityLogRecord {
+  _id: string;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  summary: string;
+  meta: Record<string, unknown>;
+  actorName: string;
+  actor: { _id: string; name: string } | string | null;
+  business: { _id: string; name: string } | string | null;
+  createdAt: string;
 }

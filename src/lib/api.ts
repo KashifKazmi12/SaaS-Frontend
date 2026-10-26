@@ -369,10 +369,20 @@ export const api = {
   getOrderPaymentLink: (id: string) =>
     request<{ checkoutUrl: string }>(`/orders/${id}/payment-link`, { method: "POST" }),
 
-  getOrderCatalogOptions: (params: { groupId: string; businessId: string }) =>
+  getOrderCatalogOptions: (params: {
+    groupId: string;
+    businessId: string;
+    page?: number;
+    limit?: number;
+    search?: string;
+  }) =>
     request<{
       items: import("@/types").OrderCatalogProduct[];
       portalPaymentMethods?: import("@/constants/commerce").CheckoutPaymentMethod[];
+      total: number;
+      page: number;
+      limit: number;
+      totalPages: number;
     }>(`/orders/catalog-options${buildQuery(params)}`),
 
   createOrder: (payload: Record<string, unknown>) =>
@@ -611,4 +621,9 @@ export const api = {
 
   restoreRecycleBinItem: (type: string, id: string) =>
     request<{ message: string }>(`/recycle-bin/${type}/${id}/restore`, { method: "POST" }),
+
+  getActivityLog: (params?: ListQueryParams) =>
+    request<import("@/types").ListResponse<import("@/types").ActivityLogRecord>>(
+      `/activity-log${buildQuery(params)}`
+    ),
 };

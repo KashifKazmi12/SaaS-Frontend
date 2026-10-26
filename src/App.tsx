@@ -30,6 +30,7 @@ import DashboardPage from "@/pages/insights/DashboardPage";
 import PaymentThankYouPage from "@/pages/public/PaymentThankYouPage";
 import PaymentCancelledPage from "@/pages/public/PaymentCancelledPage";
 import RecycleBinPage from "@/pages/recycle-bin/RecycleBinPage";
+import ActivityLogPage from "@/pages/activity-log/ActivityLogPage";
 
 export default function App() {
   return (
@@ -86,6 +87,8 @@ export default function App() {
             <Route path="/settings/themes" element={<ThemeSettingsPage />} />
             <Route path="/settings/notifications" element={<NotificationEventsPage />} />
             <Route path="/settings/payments" element={<PaymentsSettingsPage />} />
+            <Route path="/settings/activity-log" element={<ActivityLogPage />} />
+            <Route path="/activity-log" element={<Navigate to="/settings/activity-log" replace />} />
           </Route>
 
               <Route path="*" element={<Navigate to="/dashboard" replace />} />

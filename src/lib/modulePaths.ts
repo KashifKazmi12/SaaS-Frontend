@@ -13,6 +13,7 @@ export const MODULE_PATHS = {
   SETTINGS_THEMES: "/settings/themes",
   SETTINGS_NOTIFICATIONS: "/settings/notifications",
   SETTINGS_PAYMENTS: "/settings/payments",
+  ACTIVITY_LOG: "/settings/activity-log",
   STOCK: "/stock",
 } as const;
 
@@ -26,6 +27,7 @@ export const MODULE_PAGE_TITLES: Record<ModulePath, string> = {
   [MODULE_PATHS.CATALOG_CATEGORIES]: "Categories",
   [MODULE_PATHS.CUSTOMERS]: "Customers",
   [MODULE_PATHS.ORDERS]: "Orders",
+  [MODULE_PATHS.ACTIVITY_LOG]: "Activity Log",
   [MODULE_PATHS.RECYCLE_BIN]: "Recycle Bin",
   [MODULE_PATHS.STOCK]: "Stock",
   [MODULE_PATHS.SETTINGS_MODULES]: "Modules",

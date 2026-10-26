@@ -38,12 +38,23 @@ import { paymentLabel, paymentTone, statusLabel, statusTone } from "@/components
 import { useInsightsScope } from "@/hooks/useInsightsScope";
 import { useInsightsSection } from "@/hooks/useInsightsSection";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ALL_FILTER } from "@/lib/listFilters";
 import { formatMoney } from "@/lib/money";
 import { MODULE_PATHS } from "@/lib/modulePaths";
 import type { InsightsAttentionOrder, InsightsAttentionStock, ListResponse } from "@/types";
 
 const MODULE_PATH = MODULE_PATHS.DASHBOARD;
 const LIST_LIMIT = 8;
+
+function listPath(path: string, query: Record<string, string | undefined>) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (!value || value === ALL_FILTER) continue;
+    params.set(key, value);
+  }
+  const qs = params.toString();
+  return qs ? `${path}?${qs}` : path;
+}
 
 function panelFooter(link: { to: string; label: string }, pager: {
   page: number;
@@ -197,6 +208,10 @@ export default function DashboardPage() {
                 hint={`${kpis.completedOrders} completed`}
                 icon={Banknote}
                 accent="emerald"
+                to={listPath(MODULE_PATHS.ORDERS, {
+                  groupId: scope.groupId,
+                  orderStatus: "completed",
+                })}
               />
               <InsightsKpiCard
                 label="Orders placed"
@@ -204,6 +219,7 @@ export default function DashboardPage() {
                 hint={`${kpis.cancelledOrders} cancelled`}
                 icon={ShoppingBag}
                 accent="sky"
+                to={listPath(MODULE_PATHS.ORDERS, { groupId: scope.groupId })}
               />
               <InsightsKpiCard
                 label="Open now"
@@ -215,6 +231,10 @@ export default function DashboardPage() {
                 }
                 icon={Package}
                 accent="amber"
+                to={listPath(MODULE_PATHS.ORDERS, {
+                  groupId: scope.groupId,
+                  orderStatus: "open",
+                })}
               />
               <InsightsKpiCard
                 label="Follow-up"
@@ -222,24 +242,39 @@ export default function DashboardPage() {
                 hint={`${kpis.refundPending} refund · ${kpis.outOfStock} out`}
                 icon={AlertTriangle}
                 accent="rose"
+                to={listPath(MODULE_PATHS.ORDERS, {
+                  groupId: scope.groupId,
+                  paymentStatus: "refund_pending",
+                })}
               />
               <InsightsKpiCard
                 label="New customers"
                 value={String(kpis.newCustomers)}
                 icon={UserPlus}
                 accent="violet"
+                to={listPath(MODULE_PATHS.CUSTOMERS, { groupId: scope.groupId })}
               />
               <InsightsKpiCard
                 label="Low stock"
                 value={String(kpis.lowStock)}
                 icon={Package}
                 accent="amber"
+                to={listPath(MODULE_PATHS.STOCK, {
+                  businessId:
+                    scope.businessId !== ALL_FILTER ? scope.businessId : undefined,
+                  stockLevel: "low",
+                })}
               />
               <InsightsKpiCard
                 label="Out of stock"
                 value={String(kpis.outOfStock)}
                 icon={PackageX}
                 accent="rose"
+                to={listPath(MODULE_PATHS.STOCK, {
+                  businessId:
+                    scope.businessId !== ALL_FILTER ? scope.businessId : undefined,
+                  stockLevel: "out",
+                })}
               />
             </section>
           )}
@@ -343,7 +378,14 @@ export default function DashboardPage() {
               page={unpaidPage}
               onPageChange={setUnpaidPage}
               money={money}
-              link={{ to: MODULE_PATHS.ORDERS, label: "View orders" }}
+              link={{
+                to: listPath(MODULE_PATHS.ORDERS, {
+                  groupId: scope.groupId,
+                  orderStatus: "open",
+                  paymentStatus: "unpaid",
+                }),
+                label: "View unpaid",
+              }}
               subtitleOf={(order) => `${order.customer} · ${statusLabel(order.status)}`}
               onOpen={(order) => navigate(`${MODULE_PATHS.ORDERS}/${order._id}`)}
             />
@@ -358,7 +400,13 @@ export default function DashboardPage() {
               page={refundsPage}
               onPageChange={setRefundsPage}
               money={money}
-              link={{ to: MODULE_PATHS.ORDERS, label: "View orders" }}
+              link={{
+                to: listPath(MODULE_PATHS.ORDERS, {
+                  groupId: scope.groupId,
+                  paymentStatus: "refund_pending",
+                }),
+                label: "View refunds",
+              }}
               subtitleOf={(order) => `${order.customer} · ${paymentLabel(order.paymentStatus)}`}
               onOpen={(order) => navigate(`${MODULE_PATHS.ORDERS}/${order._id}`)}
             />
@@ -370,7 +418,14 @@ export default function DashboardPage() {
               empty="Stock levels look healthy."
               loading={stock.loading}
               footer={panelFooter(
-                { to: MODULE_PATHS.STOCK, label: "View stock" },
+                {
+                  to: listPath(MODULE_PATHS.STOCK, {
+                    businessId:
+                      scope.businessId !== ALL_FILTER ? scope.businessId : undefined,
+                    stockLevel: "out",
+                  }),
+                  label: "View stock",
+                },
                 {
                   page: stockPage,
                   totalPages: stock.data?.totalPages || 1,
@@ -386,6 +441,15 @@ export default function DashboardPage() {
                   subtitle={row.business}
                   quantity={row.quantity}
                   level={row.level === "out" ? "out" : "low"}
+                  onClick={() =>
+                    navigate(
+                      listPath(MODULE_PATHS.STOCK, {
+                        businessId:
+                          scope.businessId !== ALL_FILTER ? scope.businessId : undefined,
+                        stockLevel: row.level === "out" ? "out" : "low",
+                      })
+                    )
+                  }
                 />
               ))}
             </InsightsAttentionPanel>

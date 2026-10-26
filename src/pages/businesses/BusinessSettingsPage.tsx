@@ -7,7 +7,13 @@ import { BusinessGroupSelect } from "@/components/business";
 import { EntityFieldSchemaEditor } from "@/components/entity-fields/EntityFieldSchemaEditor";
 import { PageShell } from "@/components/layout/PageShell";
 import { RequirePermission } from "@/components/layout/RouteGuards";
-import { FormField, FileUploadField, PageAlerts, PermissionButton } from "@/components/shared";
+import {
+  EnumSelect,
+  FormField,
+  FileUploadField,
+  PageAlerts,
+  PermissionButton,
+} from "@/components/shared";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -20,16 +26,52 @@ import {
   DEFAULT_PORTAL_PAYMENT_METHODS,
   type CheckoutPaymentMethod,
 } from "@/constants/commerce";
-import type { EntityFieldDefinition, EntitySchemaEntity } from "@/types";
+import { ORDER_STATUS_OPTIONS } from "@/lib/listFilters";
+import type {
+  BusinessOrderSettings,
+  EntityFieldDefinition,
+  EntitySchemaEntity,
+} from "@/types";
+
+const DEFAULT_ORDER_SETTINGS: BusinessOrderSettings = {
+  defaultStatus: "pending",
+  defaultPaymentStatus: "unpaid",
+};
+
+const ORDER_CREATE_STATUS_OPTIONS = ORDER_STATUS_OPTIONS.filter(
+  (option) => option.value !== "cancelled"
+);
+
+const ORDER_CREATE_PAYMENT_OPTIONS = [
+  { value: "unpaid", label: "Unpaid" },
+  { value: "paid", label: "Paid" },
+];
+
+function resolveOrderSettings(value?: BusinessOrderSettings | null): BusinessOrderSettings {
+  const status = ORDER_CREATE_STATUS_OPTIONS.some((option) => option.value === value?.defaultStatus)
+    ? (value!.defaultStatus as BusinessOrderSettings["defaultStatus"])
+    : DEFAULT_ORDER_SETTINGS.defaultStatus;
+  const payment =
+    value?.defaultPaymentStatus === "paid" || value?.defaultPaymentStatus === "unpaid"
+      ? value.defaultPaymentStatus
+      : DEFAULT_ORDER_SETTINGS.defaultPaymentStatus;
+  return { defaultStatus: status, defaultPaymentStatus: payment };
+}
 
 const MODULE_PATH = MODULE_PATHS.BUSINESSES_LIST;
 
-type PageTab = "general" | "payments" | "schema";
+type PageTab = "general" | "payments" | "schema" | "modules";
+type ModuleSettingsTab = "order";
 
 const PAGE_TABS: Array<{ id: PageTab; label: string }> = [
   { id: "general", label: "General" },
   { id: "payments", label: "Payments" },
   { id: "schema", label: "Schema" },
+  { id: "modules", label: "Modules settings" },
+];
+
+const MODULE_SETTINGS_TABS: Array<{ id: ModuleSettingsTab; label: string }> = [
+  { id: "order", label: "Order settings" },
 ];
 
 const SCHEMA_TABS: Array<{ id: EntitySchemaEntity; label: string; help: string }> = [
@@ -94,6 +136,7 @@ export default function BusinessSettingsPage() {
   const canUpdate = can(MODULE_PATH, "update");
   const [pageTab, setPageTab] = useState<PageTab>("general");
   const [schemaTab, setSchemaTab] = useState<EntitySchemaEntity>("customer");
+  const [moduleSettingsTab, setModuleSettingsTab] = useState<ModuleSettingsTab>("order");
   const [businessName, setBusinessName] = useState("");
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
@@ -109,6 +152,8 @@ export default function BusinessSettingsPage() {
   const [portalPaymentMethods, setPortalPaymentMethods] = useState<CheckoutPaymentMethod[]>(
     DEFAULT_PORTAL_PAYMENT_METHODS
   );
+  const [orderSettings, setOrderSettings] =
+    useState<BusinessOrderSettings>(DEFAULT_ORDER_SETTINGS);
   const [drafts, setDrafts] = useState(EMPTY_DRAFTS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -149,6 +194,7 @@ export default function BusinessSettingsPage() {
       );
       setCheckoutPaymentMethods(resolveCheckoutMethods(business.checkoutPaymentMethods));
       setPortalPaymentMethods(resolvePortalMethods(business.portalPaymentMethods));
+      setOrderSettings(resolveOrderSettings(business.orderSettings));
       setDrafts({
         customer: { fields: customer.fields, presets: customer.presets },
         product: { fields: product.fields, presets: product.presets },
@@ -255,6 +301,26 @@ export default function BusinessSettingsPage() {
       setMessage("Payment options saved.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to save payment options.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSaveOrderSettings(event: FormEvent) {
+    event.preventDefault();
+    if (!businessId || !canUpdate) return;
+
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const business = await api.updateBusiness(businessId, {
+        orderSettings: resolveOrderSettings(orderSettings),
+      });
+      setOrderSettings(resolveOrderSettings(business.orderSettings));
+      setMessage("Order settings saved.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save order settings.");
     } finally {
       setSaving(false);
     }
@@ -582,6 +648,99 @@ export default function BusinessSettingsPage() {
                   </PermissionButton>
                 </>
               )}
+            </CardContent>
+          </Card>
+        )}
+
+        {pageTab === "modules" && (
+          <Card>
+            <CardHeader className="border-b">
+              <CardTitle>Modules settings</CardTitle>
+              <CardAction>
+                <div
+                  role="tablist"
+                  aria-label="Choose a module"
+                  className="bg-muted inline-flex flex-wrap rounded-lg p-1"
+                >
+                  {MODULE_SETTINGS_TABS.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={moduleSettingsTab === item.id}
+                      onClick={() => {
+                        setModuleSettingsTab(item.id);
+                        setMessage("");
+                        setError("");
+                      }}
+                      className={cn(
+                        "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                        moduleSettingsTab === item.id
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </CardAction>
+            </CardHeader>
+            <CardContent className="pt-4">
+              {moduleSettingsTab === "order" ? (
+                loading ? (
+                  <p className="text-sm text-muted-foreground">Loading order settings...</p>
+                ) : (
+                  <form className="space-y-4" onSubmit={handleSaveOrderSettings}>
+                    <div className="space-y-1">
+                      <h3 className="text-sm font-medium">Order settings</h3>
+                      <p className="text-muted-foreground text-sm">
+                        Defaults for admin Create order only. The customer app always starts as
+                        pending and unpaid.
+                      </p>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <EnumSelect
+                        id="order-default-status"
+                        label="Default order status"
+                        value={orderSettings.defaultStatus}
+                        onValueChange={(value) =>
+                          setOrderSettings((current) => ({
+                            ...current,
+                            defaultStatus: value as BusinessOrderSettings["defaultStatus"],
+                          }))
+                        }
+                        options={ORDER_CREATE_STATUS_OPTIONS}
+                        required
+                        disabled={!canUpdate}
+                      />
+                      <EnumSelect
+                        id="order-default-payment-status"
+                        label="Default payment status"
+                        value={orderSettings.defaultPaymentStatus}
+                        onValueChange={(value) =>
+                          setOrderSettings((current) => ({
+                            ...current,
+                            defaultPaymentStatus:
+                              value as BusinessOrderSettings["defaultPaymentStatus"],
+                          }))
+                        }
+                        options={ORDER_CREATE_PAYMENT_OPTIONS}
+                        required
+                        disabled={!canUpdate}
+                      />
+                    </div>
+                    <PermissionButton
+                      modulePath={MODULE_PATH}
+                      action="update"
+                      type="submit"
+                      disabled={saving}
+                    >
+                      {saving ? "Saving..." : "Save order settings"}
+                    </PermissionButton>
+                  </form>
+                )
+              ) : null}
             </CardContent>
           </Card>
         )}

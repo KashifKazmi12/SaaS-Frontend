@@ -1,16 +1,30 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ALL_FILTER } from "@/lib/listFilters";
 import { useDebouncedValue } from "./useDebouncedValue";
 
 export const DEFAULT_PAGE_SIZE = 10;
 export const PAGE_SIZE_OPTIONS = [10, 25, 50];
 const FILTER_DEBOUNCE_MS = 300;
+const URL_FILTER_SKIP = new Set(["page", "limit", "search"]);
+
+function filtersFromSearchParams(searchParams: URLSearchParams) {
+  const initial: Record<string, string> = {};
+  searchParams.forEach((value, key) => {
+    if (URL_FILTER_SKIP.has(key) || !value) return;
+    initial[key] = value;
+  });
+  return initial;
+}
 
 export function useListQuery() {
+  const [searchParams] = useSearchParams();
   const [page, setPage] = useState(1);
   const [limit, setLimitState] = useState(DEFAULT_PAGE_SIZE);
-  const [searchInput, setSearchInput] = useState("");
-  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [searchInput, setSearchInput] = useState(() => searchParams.get("search") || "");
+  const [filters, setFilters] = useState<Record<string, string>>(() =>
+    filtersFromSearchParams(searchParams)
+  );
   const search = useDebouncedValue(searchInput, FILTER_DEBOUNCE_MS);
 
   useEffect(() => {

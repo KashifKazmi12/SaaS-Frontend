@@ -165,6 +165,7 @@ export function ImportWizard({
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [importProgress, setImportProgress] = useState("");
   const [result, setResult] = useState<ImportResultSummary | null>(null);
   const [quantityMode, setQuantityMode] = useState<StockQuantityMode>("add");
 
@@ -281,18 +282,44 @@ export function ImportWizard({
     if (!businessId || !requiredReady) return;
     setSaving(true);
     setError("");
+    setImportProgress("");
+    const chunkSize = 200;
+    const combined: ImportResultSummary = {
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      errorCount: 0,
+      errors: [],
+    };
     try {
-      const summary = await onImport({
-        businessId,
-        rows: mappedRows,
-        quantityMode,
-      });
-      setResult(summary);
+      for (let start = 0; start < mappedRows.length; start += chunkSize) {
+        const end = Math.min(start + chunkSize, mappedRows.length);
+        setImportProgress(`Importing ${end.toLocaleString()} of ${mappedRows.length.toLocaleString()}…`);
+        const summary = await onImport({
+          businessId,
+          rows: mappedRows.slice(start, end).map((row, index) => ({
+            ...row,
+            _row: String(start + index + 2),
+          })),
+          quantityMode,
+        });
+        combined.created += summary.created;
+        combined.updated += summary.updated;
+        combined.skipped += summary.skipped;
+        combined.errorCount =
+          (combined.errorCount || 0) + (summary.errorCount ?? summary.errors.length);
+        for (const item of summary.errors) {
+          if (combined.errors.length >= 40) break;
+          combined.errors.push(item);
+        }
+      }
+      setResult(combined);
       setStep("done");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Import failed.");
     } finally {
       setSaving(false);
+      setImportProgress("");
     }
   }
 
@@ -565,6 +592,11 @@ export function ImportWizard({
                       Row {item.row}: {item.message}
                     </p>
                   ))}
+                  {(result.errorCount || result.errors.length) > result.errors.length ? (
+                    <p className="text-muted-foreground">
+                      Showing {result.errors.length} of {result.errorCount} issues.
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -615,7 +647,9 @@ export function ImportWizard({
             ) : null}
             {step === "preview" ? (
               <Button type="button" disabled={saving || !businessId} onClick={() => void runImport()}>
-                {saving ? "Importing..." : `Import ${mappedRows.length}`}
+                {saving
+                  ? importProgress || "Importing..."
+                  : `Import ${mappedRows.length.toLocaleString()}`}
               </Button>
             ) : null}
             {step === "done" ? (

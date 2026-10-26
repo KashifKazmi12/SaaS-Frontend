@@ -28,5 +28,6 @@ export interface ImportResultSummary {
   created: number;
   updated: number;
   skipped: number;
+  errorCount?: number;
   errors: Array<{ row: number; message: string }>;
 }

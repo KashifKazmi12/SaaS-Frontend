@@ -77,6 +77,14 @@ function paymentStatusLabel(status: OrderPaymentStatus) {
   return ORDER_PAYMENT_STATUS_OPTIONS.find((option) => option.value === status)?.label || status;
 }
 
+/** How a refunded order was settled — payment status stays "refunded". */
+function refundHowLabel(order: OrderRecord) {
+  if (order.paymentStatus !== "refunded") return "";
+  if ((order.refundToWalletAmount || 0) > 0) return "Refunded to wallet";
+  if (order.paymentMethod === "stripe") return "Refunded via Stripe";
+  return "Marked as refunded";
+}
+
 function orderFormValues(
   fields: EntityFieldDefinition[],
   order?: OrderRecord
@@ -154,6 +162,7 @@ export default function OrderDetailPage() {
   const [schemaFields, setSchemaFields] = useState<EntityFieldDefinition[]>([]);
   const [schemaLoading, setSchemaLoading] = useState(false);
   const pendingCheckoutUrlRef = useRef<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
 
   async function loadPaymentLink(data: OrderRecord) {
     const needsLink =
@@ -264,6 +273,18 @@ export default function OrderDetailPage() {
     setFormValues(orderFormValues(schemaFields, updated));
   }
 
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      if (event.key.toLowerCase() !== "s") return;
+      event.preventDefault();
+      if (!canUpdate || saving || schemaLoading || receiptOpen || !order) return;
+      formRef.current?.requestSubmit();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [canUpdate, saving, schemaLoading, receiptOpen, order]);
+
   async function handleSave(event: FormEvent) {
     event.preventDefault();
     if (!order || !canUpdate || schemaLoading) return;
@@ -271,6 +292,14 @@ export default function OrderDetailPage() {
     const stripeLocked = order.paymentMethod === "stripe";
     let nextPaymentStatus = paymentStatus;
     let nextPaymentMethod = paymentMethod;
+
+    // Completed / cancelled: use the refund action buttons at the bottom.
+    if (order.status === "completed" || order.status === "cancelled") {
+      setError(
+        "Use the refund actions below: Mark as refunded, Refund to customer wallet, or Refund via Stripe."
+      );
+      return;
+    }
 
     if (
       !stripeLocked &&
@@ -339,6 +368,14 @@ export default function OrderDetailPage() {
 
   async function handleRefundToWallet() {
     if (!order || !canUpdate) return;
+    const amount = formatMoney(order.total, currencyFromGroup(order.businessGroup));
+    const confirmed = await confirm({
+      title: "Refund to customer wallet?",
+      description: `This credits ${amount} to the customer’s store wallet and marks the order as refunded. Use this when the customer wants store credit instead of cash or a bank transfer.`,
+      confirmLabel: "Refund to customer wallet",
+      cancelLabel: "Cancel",
+    });
+    if (!confirmed) return;
     setRefunding(true);
     setError("");
     setMessage("");
@@ -358,8 +395,41 @@ export default function OrderDetailPage() {
     }
   }
 
+  /** Mark refunded after cash/bank/transfer outside the system — no wallet credit. */
+  async function handleMarkRefundedOutside() {
+    if (!order || !canUpdate) return;
+    const amount = formatMoney(order.total, currencyFromGroup(order.businessGroup));
+    const confirmed = await confirm({
+      title: "Mark as refunded?",
+      description: `Confirm you already returned ${amount} to the customer by cash, bank transfer, or another payout. The order will be marked refunded. No money will be added to their wallet.`,
+      confirmLabel: "Mark as refunded",
+      cancelLabel: "Cancel",
+    });
+    if (!confirmed) return;
+    setRefunding(true);
+    setError("");
+    setMessage("");
+    try {
+      const updated = await api.updateOrder(order._id, { paymentStatus: "refunded" });
+      applyOrder(updated);
+      setMessage("Marked refunded. No wallet credit added.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to mark refunded.");
+    } finally {
+      setRefunding(false);
+    }
+  }
+
   async function handleRefundStripe() {
     if (!order || !canUpdate) return;
+    const amount = formatMoney(order.total, currencyFromGroup(order.businessGroup));
+    const confirmed = await confirm({
+      title: "Refund via Stripe?",
+      description: `This refunds ${amount} back to the customer’s card through Stripe and marks the order as refunded.`,
+      confirmLabel: "Refund via Stripe",
+      cancelLabel: "Cancel",
+    });
+    if (!confirmed) return;
     setRefundingStripe(true);
     setError("");
     setMessage("");
@@ -385,20 +455,17 @@ export default function OrderDetailPage() {
   const canEditOrder =
     canUpdate && order != null && order.status !== "cancelled" && order.status !== "completed";
   const canEditStatus = canEditOrder;
-  /** Payment: unpaid/paid while open. Completed locked. Cancelled only refund_pending → refunded. Stripe never editable. */
+  /** Payment editable while open. Completed/cancelled use refund action buttons instead. */
   const canEditPayment =
-    canUpdate &&
-    order != null &&
-    !isStripePayment &&
-    order.status !== "completed" &&
-    (order.status !== "cancelled" || order.paymentStatus === "refund_pending");
+    canUpdate && order != null && !isStripePayment && canEditOrder;
   const canEditPaymentMethod = canEditOrder && !isStripePayment;
-  const showCancelRefundBanner =
-    order?.status === "cancelled" &&
+  const showRefundBanner =
+    (order?.status === "cancelled" || order?.status === "completed") &&
     (order.paymentStatus === "refund_pending" ||
       order.paymentStatus === "refunded" ||
-      (order.walletApplied || 0) > 0 ||
-      (order.pointsRedeemed || 0) > 0);
+      (order.paymentStatus === "paid" && order.total > 0) ||
+      (order.status === "cancelled" &&
+        ((order.walletApplied || 0) > 0 || (order.pointsRedeemed || 0) > 0)));
 
   const statusOptions = order ? allowedOrderStatusOptions(order.status) : ORDER_STATUS_OPTIONS;
   const paymentOptions = order
@@ -416,17 +483,19 @@ export default function OrderDetailPage() {
         title={order ? `Order ${order.orderNumber}` : "Order"}
         description={
           order?.status === "completed"
-            ? "Completed — status, payment, and method are locked."
+            ? order.paymentStatus === "refund_pending"
+              ? "Completed — refund follow-up needed for the collected payment."
+              : order.paymentStatus === "refunded"
+                ? `Completed — ${refundHowLabel(order) || "Refunded"}.`
+                : "Completed — status and method are locked. Refunds are still allowed."
             : order?.status === "cancelled"
               ? order.paymentStatus === "refund_pending"
                 ? "This order is cancelled. Cash/bank refunds need follow-up."
                 : order.paymentStatus === "refunded"
-                  ? (order.refundToWalletAmount || 0) > 0
-                    ? "This order is cancelled. Paid remainder was refunded to store credit."
-                    : "This order is cancelled. Paid remainder was marked refunded outside the system."
+                  ? `This order is cancelled. ${refundHowLabel(order) || "Refunded"}.`
                   : "This order is cancelled."
               : canUpdate
-                ? "View and update this order. Completing locks status and payment."
+                ? "View and update this order. Completing locks status; refunds stay available."
                 : "View this order. You do not have permission to edit."
         }
         action={
@@ -471,106 +540,15 @@ export default function OrderDetailPage() {
             </CardContent>
           </Card>
         ) : (
-          <form onSubmit={handleSave} className="space-y-4">
-            {order.status === "completed" ? (
+          <form ref={formRef} onSubmit={handleSave} className="space-y-4">
+            {order.status === "completed" &&
+            order.paymentStatus !== "refund_pending" &&
+            order.paymentStatus !== "refunded" &&
+            !(order.paymentStatus === "paid" && order.total > 0) ? (
               <Card className="border-emerald-200 bg-emerald-50/60 dark:border-emerald-900/50 dark:bg-emerald-950/20">
                 <CardContent className="pt-4 text-sm">
-                  This order is <span className="font-medium">Completed</span> — status, payment
-                  status, and payment method are locked.
-                </CardContent>
-              </Card>
-            ) : null}
-
-            {showCancelRefundBanner ? (
-              <Card className="border-amber-200 bg-amber-50/60 dark:border-amber-900/50 dark:bg-amber-950/20">
-                <CardHeader className="border-b border-amber-200/80 dark:border-amber-900/40">
-                  <CardTitle className="text-base">Cancellation & refunds</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3 pt-4 text-sm">
-                  <ul className="text-muted-foreground list-disc space-y-1.5 pl-4">
-                    {(order.walletApplied || 0) > 0 ? (
-                      <li>
-                        Store credit restored:{" "}
-                        <span className="text-foreground font-medium">
-                          {formatMoney(
-                            order.walletApplied || 0,
-                            currencyFromGroup(order.businessGroup)
-                          )}
-                        </span>
-                      </li>
-                    ) : null}
-                    {(order.pointsRedeemed || 0) > 0 ? (
-                      <li>
-                        Loyalty points restored:{" "}
-                        <span className="text-foreground font-medium">
-                          {order.pointsRedeemed}
-                        </span>
-                      </li>
-                    ) : null}
-                    {order.paymentStatus === "refund_pending" ? (
-                      <li>
-                        {order.paymentMethod === "stripe" ? "Card" : "Cash/bank"} payment of{" "}
-                        <span className="text-foreground font-medium">
-                          {formatMoney(order.total, currencyFromGroup(order.businessGroup))}
-                        </span>{" "}
-                        was collected and is <strong>not</strong> auto-refunded.
-                        {order.paymentMethod === "stripe"
-                          ? " Refund via Stripe below, credit the customer wallet, or mark refunded if you already returned the money."
-                          : " Refund outside the system, or use Refund to wallet below."}
-                      </li>
-                    ) : null}
-                    {order.paymentStatus === "refunded" ? (
-                      (order.refundToWalletAmount || 0) > 0 ? (
-                        <li>
-                          Paid remainder{" "}
-                          <span className="text-foreground font-medium">
-                            {formatMoney(
-                              order.refundToWalletAmount || 0,
-                              currencyFromGroup(order.businessGroup)
-                            )}
-                          </span>{" "}
-                          was credited to the customer’s store credit.
-                        </li>
-                      ) : (
-                        <li>
-                          Paid remainder{" "}
-                          <span className="text-foreground font-medium">
-                            {formatMoney(order.total, currencyFromGroup(order.businessGroup))}
-                          </span>{" "}
-                          was marked refunded outside the system.
-                        </li>
-                      )
-                    ) : null}
-                  </ul>
-                  {canUpdate && order.paymentStatus === "refund_pending" && order.total > 0 ? (
-                    <div className="flex flex-wrap gap-2">
-                      {order.paymentMethod === "stripe" ? (
-                        <PermissionButton
-                          modulePath={MODULE_PATH}
-                          action="update"
-                          type="button"
-                          disabled={refundingStripe}
-                          onClick={handleRefundStripe}
-                        >
-                          {refundingStripe
-                            ? "Refunding..."
-                            : `Refund ${formatMoney(order.total, currencyFromGroup(order.businessGroup))} via Stripe`}
-                        </PermissionButton>
-                      ) : null}
-                      <PermissionButton
-                        modulePath={MODULE_PATH}
-                        action="update"
-                        type="button"
-                        variant="outline"
-                        disabled={refunding}
-                        onClick={handleRefundToWallet}
-                      >
-                        {refunding
-                          ? "Refunding..."
-                          : `Refund ${formatMoney(order.total, currencyFromGroup(order.businessGroup))} to wallet`}
-                      </PermissionButton>
-                    </div>
-                  ) : null}
+                  This order is <span className="font-medium">Completed</span> — status and payment
+                  method are locked.
                 </CardContent>
               </Card>
             ) : null}
@@ -606,7 +584,11 @@ export default function OrderDetailPage() {
                         {getBusinessDisplayName(order.businessGroup)}
                       </p>
                       <p className="text-muted-foreground mt-0.5 text-sm">
-                        {order.source === "customer_app" ? "Placed from app" : "Placed by admin"}
+                        {order.source === "customer_app"
+                          ? "Placed from app"
+                          : order.source === "desktop"
+                            ? "Placed from desktop"
+                            : "Placed by admin"}
                       </p>
                     </div>
                     <div>
@@ -626,10 +608,36 @@ export default function OrderDetailPage() {
                         Payment
                       </p>
                       <p className="mt-1 font-medium">{paymentStatusLabel(order.paymentStatus)}</p>
+                      {order.paymentStatus === "refunded" && refundHowLabel(order) ? (
+                        <p className="text-muted-foreground mt-0.5 text-sm">{refundHowLabel(order)}</p>
+                      ) : null}
                       <p className="text-muted-foreground mt-0.5 text-sm">
                         {paymentMethodLabel(order.paymentMethod)}
                       </p>
                     </div>
+                    {order.desktopReferenceId ? (
+                      <div>
+                        <p className="text-muted-foreground text-xs uppercase tracking-wide">
+                          Desktop reference
+                        </p>
+                        <p className="mt-1 font-medium font-mono text-sm">
+                          {order.desktopReferenceId}
+                        </p>
+                        <p className="text-muted-foreground mt-0.5 text-sm">
+                          Offline receipt id — searchable for refunds
+                        </p>
+                      </div>
+                    ) : null}
+                    {order.source === "desktop" && order.clientMutationId ? (
+                      <div>
+                        <p className="text-muted-foreground text-xs uppercase tracking-wide">
+                          Offline order id
+                        </p>
+                        <p className="mt-1 break-all font-mono text-sm font-medium">
+                          {order.clientMutationId}
+                        </p>
+                      </div>
+                    ) : null}
                   </CardContent>
                 </Card>
 
@@ -760,9 +768,9 @@ export default function OrderDetailPage() {
                       disabled={!canEditStatus}
                       hint={
                         canEditStatus
-                          ? "Move among open stages (pending, confirmed, preparing, in transit), complete, or cancel. Completing locks status and payment."
+                          ? "Move among open stages (pending, confirmed, preparing, in transit), complete, or cancel. Completing locks status; refunds stay available."
                           : order.status === "completed"
-                            ? "Completed — status and payment are locked."
+                            ? "Completed — status is locked. Payment refund follow-up is still allowed."
                             : undefined
                       }
                     />
@@ -781,12 +789,12 @@ export default function OrderDetailPage() {
                       required
                       disabled={!canEditPayment}
                       hint={
-                        isStripePayment
-                          ? "Managed by Stripe — cannot be changed manually."
-                          : canEditPayment && order.status !== "cancelled"
-                            ? "Unpaid or paid. Completing marks paid and locks this field."
-                            : order.status === "completed"
-                              ? "Locked on completed orders."
+                        order.status === "completed" || order.status === "cancelled"
+                          ? "Locked — use refund actions below."
+                          : isStripePayment
+                            ? "Managed by Stripe after payment."
+                            : canEditPayment
+                              ? "Unpaid or paid. Completing locks status; refunds remain available afterward."
                               : undefined
                       }
                     />
@@ -833,7 +841,9 @@ export default function OrderDetailPage() {
                   </Card>
                 ) : null}
 
-                {canEditOrder || (canEditPayment && order.status === "cancelled") ? (
+                {canEditOrder ||
+                (canEditPayment &&
+                  (order.status === "cancelled" || order.status === "completed")) ? (
                   <PermissionButton
                     modulePath={MODULE_PATH}
                     action="update"
@@ -846,6 +856,74 @@ export default function OrderDetailPage() {
                 ) : null}
               </div>
             </div>
+
+            {showRefundBanner ? (
+              <Card>
+                <CardHeader className="border-b">
+                  <CardTitle className="text-base">Refunds</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 pt-4 text-sm">
+                  {(order.walletApplied || 0) > 0 && order.status === "cancelled" ? (
+                    <p className="text-muted-foreground">
+                      Store credit restored:{" "}
+                      <span className="text-foreground font-medium">
+                        {formatMoney(
+                          order.walletApplied || 0,
+                          currencyFromGroup(order.businessGroup)
+                        )}
+                      </span>
+                    </p>
+                  ) : null}
+                  {(order.pointsRedeemed || 0) > 0 && order.status === "cancelled" ? (
+                    <p className="text-muted-foreground">
+                      Loyalty points restored:{" "}
+                      <span className="text-foreground font-medium">{order.pointsRedeemed}</span>
+                    </p>
+                  ) : null}
+                  {order.paymentStatus === "refunded" && refundHowLabel(order) ? (
+                    <p className="text-muted-foreground">{refundHowLabel(order)}</p>
+                  ) : null}
+                  {canUpdate &&
+                  order.total > 0 &&
+                  (order.paymentStatus === "refund_pending" ||
+                    order.paymentStatus === "paid") ? (
+                    <div className="flex flex-wrap gap-2">
+                      {order.paymentMethod === "stripe" ? (
+                        <PermissionButton
+                          modulePath={MODULE_PATH}
+                          action="update"
+                          type="button"
+                          disabled={refundingStripe || refunding}
+                          onClick={handleRefundStripe}
+                        >
+                          {refundingStripe ? "Refunding..." : "Refund via Stripe"}
+                        </PermissionButton>
+                      ) : null}
+                      <PermissionButton
+                        modulePath={MODULE_PATH}
+                        action="update"
+                        type="button"
+                        variant="outline"
+                        disabled={refunding || refundingStripe}
+                        onClick={handleMarkRefundedOutside}
+                      >
+                        {refunding ? "Saving..." : "Mark as refunded"}
+                      </PermissionButton>
+                      <PermissionButton
+                        modulePath={MODULE_PATH}
+                        action="update"
+                        type="button"
+                        variant="outline"
+                        disabled={refunding || refundingStripe}
+                        onClick={handleRefundToWallet}
+                      >
+                        {refunding ? "Refunding..." : "Refund to customer wallet"}
+                      </PermissionButton>
+                    </div>
+                  ) : null}
+                </CardContent>
+              </Card>
+            ) : null}
           </form>
         )}
 

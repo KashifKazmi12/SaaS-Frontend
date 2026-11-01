@@ -18,6 +18,10 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
+import {
+  useBusinessOptions,
+  useBusinessVisibility,
+} from "@/hooks/useBusinessOptions";
 import { useCrudPage } from "@/hooks/useCrudPage";
 import { resolveListBusinessId, useListSchemaFields } from "@/hooks/useListSchemaFields";
 import { useListQuery } from "@/hooks/useListQuery";
@@ -69,6 +73,8 @@ function customerLabel(order: OrderRecord) {
 export default function OrdersPage() {
   const navigate = useNavigate();
   const { can, user } = useAuth();
+  const { isSuperAdmin, showBusinessColumn } = useBusinessVisibility();
+  const { options: businessOptions } = useBusinessOptions(isSuperAdmin ? "all" : "assigned");
   const crud = useCrudPage<OrderRecord>();
   const { confirm } = useConfirm();
   const list = useListQuery();
@@ -82,10 +88,25 @@ export default function OrdersPage() {
   const canUpdate = can(MODULE_PATH, "update");
   const showGroupFilter = groupOptions.length > 1;
   const orderStatusTab = list.getFilter("orderStatus");
+  const selectedGroupId = list.getFilter("groupId");
+  const selectedBusinessId = list.getFilter("businessId");
   const listGroupId = resolveListBusinessId(
-    list.getFilter("groupId"),
+    selectedGroupId,
     groupOptions.length === 1 ? groupOptions[0].id : undefined
   );
+  const businessFilterOptions = useMemo(() => {
+    if (selectedGroupId === ALL_FILTER) return businessOptions;
+    return businessOptions.filter(
+      (option) => String(option.businessGroupId || "") === selectedGroupId
+    );
+  }, [businessOptions, selectedGroupId]);
+
+  // Drop a business filter that no longer matches the selected group.
+  useEffect(() => {
+    if (selectedBusinessId === ALL_FILTER) return;
+    const stillValid = businessFilterOptions.some((option) => option.id === selectedBusinessId);
+    if (!stillValid) list.setFilter("businessId", ALL_FILTER);
+  }, [businessFilterOptions, selectedBusinessId, list.setFilter]);
   const listSchemaFields = useListSchemaFields("order", listGroupId, {
     includeRootKeys: true,
   });
@@ -100,6 +121,15 @@ export default function OrdersPage() {
         ? [
             textColumn<OrderRecord>("group", "Group", (order) =>
               getBusinessDisplayName(order.businessGroup)
+            ),
+          ]
+        : []),
+      ...(showBusinessColumn
+        ? [
+            textColumn<OrderRecord>("business", "Business", (order) =>
+              order.items?.[0]?.business
+                ? getBusinessDisplayName(order.items[0].business)
+                : "—"
             ),
           ]
         : []),
@@ -129,7 +159,7 @@ export default function OrdersPage() {
           )
         : []),
     ],
-    [listSchemaFields, listGroupId, showGroupFilter]
+    [listSchemaFields, listGroupId, showGroupFilter, showBusinessColumn]
   );
 
   async function loadOrders() {
@@ -302,6 +332,19 @@ export default function OrdersPage() {
                     options={[
                       { value: ALL_FILTER, label: "All groups" },
                       ...groupOptions.map((option) => ({
+                        value: option.id,
+                        label: option.name,
+                      })),
+                    ]}
+                  />
+                ) : null}
+                {showBusinessColumn ? (
+                  <FilterSelect
+                    value={list.getFilter("businessId")}
+                    onValueChange={(value) => list.setFilter("businessId", value)}
+                    options={[
+                      { value: ALL_FILTER, label: "All businesses" },
+                      ...businessFilterOptions.map((option) => ({
                         value: option.id,
                         label: option.name,
                       })),

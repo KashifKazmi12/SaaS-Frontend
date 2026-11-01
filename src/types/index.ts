@@ -322,6 +322,9 @@ export interface OrderRecord {
   paymentStatus: OrderPaymentStatus;
   paymentMethod: OrderPaymentMethod;
   source: OrderSource;
+  /** Desktop/offline human reference (separate from orderNumber). */
+  desktopReferenceId?: string;
+  clientMutationId?: string;
   notes: string;
   custom?: Record<string, unknown>;
   stockApplied: boolean;

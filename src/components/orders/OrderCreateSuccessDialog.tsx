@@ -97,6 +97,7 @@ export function OrderCreateSuccessDialog({
       total: createdOrder.total,
       createdAt: createdOrder.createdAt,
       businessName,
+      desktopReferenceId: createdOrder.desktopReferenceId || null,
       paymentUrl: hasCard ? checkoutUrl : null,
     });
   }

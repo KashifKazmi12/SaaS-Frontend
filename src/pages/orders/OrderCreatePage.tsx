@@ -1,5 +1,5 @@
 import type { FormEvent, KeyboardEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ImageIcon, Plus, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
@@ -136,6 +136,7 @@ export default function OrderCreatePage() {
   const [message, setMessage] = useState("");
   const [successOrder, setSuccessOrder] = useState<OrderRecord | null>(null);
   const [successCheckoutUrl, setSuccessCheckoutUrl] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
 
   const branchOptions = useMemo(
     () =>
@@ -400,6 +401,18 @@ export default function OrderCreatePage() {
     navigate(`${MODULE_PATH}/${id}`);
   }
 
+  useEffect(() => {
+    function onKeyDown(event: globalThis.KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      if (event.key.toLowerCase() !== "s") return;
+      event.preventDefault();
+      if (saving || schemaLoading || successOrder) return;
+      formRef.current?.requestSubmit();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [saving, schemaLoading, successOrder]);
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError("");
@@ -487,7 +500,7 @@ export default function OrderCreatePage() {
       >
         <PageAlerts error={error} message={message} />
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form ref={formRef} onSubmit={handleSubmit} className="space-y-4">
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(300px,1fr)] lg:items-start">
             <div className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">

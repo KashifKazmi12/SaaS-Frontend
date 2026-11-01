@@ -37,19 +37,17 @@ export function allowedOrderStatusOptions(current: OrderStatus) {
 
 /**
  * Payment statuses an admin may pick.
- * Open: unpaid | paid. Completed: locked. Refund states are cancel-only / automatic.
+ * Open: unpaid | paid.
+ * Cancelled / completed: paid → refund_pending → refunded when money was collected.
  */
 export function allowedPaymentStatusesForOrder(
   orderStatus: OrderStatus,
   currentPaymentStatus: OrderPaymentStatus
 ): OrderPaymentStatus[] {
-  if (orderStatus === "cancelled") {
+  if (orderStatus === "cancelled" || orderStatus === "completed") {
+    if (currentPaymentStatus === "paid") return ["paid", "refund_pending", "refunded"];
     if (currentPaymentStatus === "refund_pending") return ["refund_pending", "refunded"];
     if (currentPaymentStatus === "refunded") return ["refunded"];
-    return [currentPaymentStatus];
-  }
-
-  if (orderStatus === "completed") {
     return [currentPaymentStatus];
   }
 

@@ -15,6 +15,8 @@ export async function printOrderReceipt(params: {
   total: number;
   createdAt?: string;
   businessName?: string;
+  /** Desktop/offline receipt reference shown under the live order number when present. */
+  desktopReferenceId?: string | null;
   /** Stripe checkout URL — when set, receipt includes a pay-by-card QR. */
   paymentUrl?: string | null;
 }) {
@@ -31,6 +33,7 @@ export async function printOrderReceipt(params: {
     total,
     createdAt,
     businessName,
+    desktopReferenceId,
     paymentUrl,
   } = params;
 
@@ -102,6 +105,11 @@ export async function printOrderReceipt(params: {
     </style></head><body>
     <h1>${escapeHtml(businessName || "Order receipt")}</h1>
     <p class="muted">${escapeHtml(orderNumber)}${when ? ` · ${escapeHtml(when)}` : ""}</p>
+    ${
+      desktopReferenceId
+        ? `<p class="muted">Desktop ref: ${escapeHtml(desktopReferenceId)}</p>`
+        : ""
+    }
     <p class="muted">Customer: ${escapeHtml(customerName)} · Payment: ${escapeHtml(paymentMethodLabel)}</p>
     <table>
       <thead><tr><th>Item</th><th style="text-align:right">Qty</th><th style="text-align:right">Price</th><th style="text-align:right">Total</th></tr></thead>

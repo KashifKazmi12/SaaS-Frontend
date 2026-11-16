@@ -1,9 +1,8 @@
 import type { ImportTargetField } from "@/lib/excelImport";
 
 export const STOCK_IMPORT_FIELDS: ImportTargetField[] = [
-  { key: "sku", label: "SKU", required: true },
+  { key: "sku", label: "SKU or name", required: true, autoMapAs: "sku-or-name" },
   { key: "quantity", label: "Quantity", required: true },
-  { key: "minStock", label: "Min stock" },
   { key: "importNotes", label: "Extra info", multi: true },
 ];
 
@@ -14,11 +13,15 @@ export const PRODUCT_IMPORT_FIELDS: ImportTargetField[] = [
   { key: "price", label: "Price" },
   { key: "costPrice", label: "Cost" },
   { key: "unit", label: "Unit" },
+  {
+    key: "packagingFactor",
+    label: "Packaging",
+    packaging: true,
+  },
   { key: "category", label: "Category" },
   { key: "variation", label: "Variation" },
   { key: "description", label: "Description" },
   { key: "quantity", label: "Stock qty" },
-  { key: "minStock", label: "Min stock" },
   { key: "importNotes", label: "Extra info", multi: true },
 ];
 

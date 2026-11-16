@@ -113,13 +113,13 @@ export default function ThemeSettingsPage() {
   }
 
   async function handleResetTheme() {
-    const confirmed = await confirm({
+    const result = await confirm({
       title: "Reset to default theme?",
       description: "Your saved colors will be removed and the default theme will be used.",
       confirmLabel: "Reset theme",
       variant: "destructive",
     });
-    if (!confirmed) return;
+    if (!result.confirmed) return;
 
     setSaving(true);
     setError("");

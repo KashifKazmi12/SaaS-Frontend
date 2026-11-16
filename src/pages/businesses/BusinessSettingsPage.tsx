@@ -9,6 +9,7 @@ import { PageShell } from "@/components/layout/PageShell";
 import { RequirePermission } from "@/components/layout/RouteGuards";
 import {
   EnumSelect,
+  FormCheckboxField,
   FormField,
   FileUploadField,
   PageAlerts,
@@ -36,6 +37,7 @@ import type {
 const DEFAULT_ORDER_SETTINGS: BusinessOrderSettings = {
   defaultStatus: "pending",
   defaultPaymentStatus: "unpaid",
+  sharedLoginStaffCode: false,
 };
 
 const ORDER_CREATE_STATUS_OPTIONS = ORDER_STATUS_OPTIONS.filter(
@@ -55,7 +57,11 @@ function resolveOrderSettings(value?: BusinessOrderSettings | null): BusinessOrd
     value?.defaultPaymentStatus === "paid" || value?.defaultPaymentStatus === "unpaid"
       ? value.defaultPaymentStatus
       : DEFAULT_ORDER_SETTINGS.defaultPaymentStatus;
-  return { defaultStatus: status, defaultPaymentStatus: payment };
+  return {
+    defaultStatus: status,
+    defaultPaymentStatus: payment,
+    sharedLoginStaffCode: Boolean(value?.sharedLoginStaffCode),
+  };
 }
 
 const MODULE_PATH = MODULE_PATHS.BUSINESSES_LIST;
@@ -730,6 +736,19 @@ export default function BusinessSettingsPage() {
                         disabled={!canUpdate}
                       />
                     </div>
+                    <FormCheckboxField
+                      id="order-shared-login-staff-code"
+                      label="Ask for staff code on order actions"
+                      checked={Boolean(orderSettings.sharedLoginStaffCode)}
+                      disabled={!canUpdate}
+                      onCheckedChange={(checked) =>
+                        setOrderSettings((current) => ({
+                          ...current,
+                          sharedLoginStaffCode: checked,
+                        }))
+                      }
+                      help="Enable when several people share one login. Before create, update, refund, or remove, the system asks for a staff code and logs that person."
+                    />
                     <PermissionButton
                       modulePath={MODULE_PATH}
                       action="update"

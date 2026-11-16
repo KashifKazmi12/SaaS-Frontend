@@ -2,10 +2,12 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
+import { OrderStaffCodeField } from "@/components/orders/OrderStaffCodeField";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,6 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { validateOrderStaffCode } from "@/hooks/useOrderStaffGate";
 import { cn } from "@/lib/utils";
 
 export interface ConfirmDialogOptions {
@@ -23,12 +26,24 @@ export interface ConfirmDialogOptions {
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: "default" | "destructive";
+  /** When set, show a staff-code field and require a valid code before confirm. */
+  staffCodeBusinessId?: string;
 }
+
+export type ConfirmResult = {
+  confirmed: boolean;
+  staffCode?: string;
+  staffName?: string;
+};
 
 interface ConfirmDialogProps extends ConfirmDialogOptions {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: () => void;
+  onConfirm: (result: { staffCode?: string; staffName?: string }) => void;
+  confirming?: boolean;
+  staffError?: string;
+  staffCode?: string;
+  onStaffCodeChange?: (value: string) => void;
 }
 
 export function ConfirmDialog({
@@ -39,8 +54,15 @@ export function ConfirmDialog({
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   variant = "default",
+  staffCodeBusinessId,
   onConfirm,
+  confirming = false,
+  staffError = "",
+  staffCode = "",
+  onStaffCodeChange,
 }: ConfirmDialogProps) {
+  const needsStaff = Boolean(staffCodeBusinessId);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md" showCloseButton={false}>
@@ -48,16 +70,32 @@ export function ConfirmDialog({
           <DialogTitle>{title}</DialogTitle>
           {description ? <DialogDescription>{description}</DialogDescription> : null}
         </DialogHeader>
-        <DialogFooter className={cn(description ? undefined : "mt-2")}>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+        {needsStaff ? (
+          <OrderStaffCodeField
+            id="confirm-staff-code"
+            value={staffCode}
+            onChange={(value) => onStaffCodeChange?.(value)}
+            error={staffError}
+            disabled={confirming}
+            autoFocus
+          />
+        ) : null}
+        <DialogFooter className={cn(description || needsStaff ? undefined : "mt-2")}>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={confirming}
+            onClick={() => onOpenChange(false)}
+          >
             {cancelLabel}
           </Button>
           <Button
             type="button"
             variant={variant === "destructive" ? "destructive" : "default"}
-            onClick={onConfirm}
+            disabled={confirming || (needsStaff && !staffCode.trim())}
+            onClick={() => onConfirm({ staffCode: staffCode.trim() || undefined })}
           >
-            {confirmLabel}
+            {confirming ? "Checking…" : confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -66,11 +104,11 @@ export function ConfirmDialog({
 }
 
 interface ConfirmRequest extends ConfirmDialogOptions {
-  resolve: (confirmed: boolean) => void;
+  resolve: (result: ConfirmResult) => void;
 }
 
 interface ConfirmDialogContextValue {
-  confirm: (options: ConfirmDialogOptions | string) => Promise<boolean>;
+  confirm: (options: ConfirmDialogOptions | string) => Promise<ConfirmResult>;
 }
 
 const ConfirmDialogContext = createContext<ConfirmDialogContextValue | undefined>(undefined);
@@ -81,9 +119,19 @@ function normalizeConfirmOptions(options: ConfirmDialogOptions | string): Confir
 
 export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
   const [request, setRequest] = useState<ConfirmRequest | null>(null);
+  const [staffCode, setStaffCode] = useState("");
+  const [staffError, setStaffError] = useState("");
+  const [confirming, setConfirming] = useState(false);
+
+  useEffect(() => {
+    if (!request) return;
+    setStaffCode("");
+    setStaffError("");
+    setConfirming(false);
+  }, [request]);
 
   const confirm = useCallback((options: ConfirmDialogOptions | string) => {
-    return new Promise<boolean>((resolve) => {
+    return new Promise<ConfirmResult>((resolve) => {
       setRequest({
         ...normalizeConfirmOptions(options),
         resolve,
@@ -91,12 +139,41 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const close = useCallback((confirmed: boolean) => {
+  const close = useCallback((result: ConfirmResult) => {
     setRequest((current) => {
-      current?.resolve(confirmed);
+      current?.resolve(result);
       return null;
     });
+    setConfirming(false);
+    setStaffCode("");
+    setStaffError("");
   }, []);
+
+  const handleConfirm = useCallback(
+    async (draft: { staffCode?: string }) => {
+      if (!request) return;
+      const businessId = String(request.staffCodeBusinessId || "").trim();
+      if (!businessId) {
+        close({ confirmed: true });
+        return;
+      }
+
+      setConfirming(true);
+      setStaffError("");
+      try {
+        const staff = await validateOrderStaffCode(businessId, draft.staffCode || "");
+        close({
+          confirmed: true,
+          staffCode: staff.staffCode,
+          staffName: staff.staffName,
+        });
+      } catch (err) {
+        setStaffError(err instanceof Error ? err.message : "Invalid staff code.");
+        setConfirming(false);
+      }
+    },
+    [close, request]
+  );
 
   const value = useMemo(() => ({ confirm }), [confirm]);
 
@@ -111,10 +188,20 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
           confirmLabel={request.confirmLabel}
           cancelLabel={request.cancelLabel}
           variant={request.variant}
-          onOpenChange={(open) => {
-            if (!open) close(false);
+          staffCodeBusinessId={request.staffCodeBusinessId}
+          staffCode={staffCode}
+          onStaffCodeChange={(value) => {
+            setStaffCode(value);
+            setStaffError("");
           }}
-          onConfirm={() => close(true)}
+          staffError={staffError}
+          confirming={confirming}
+          onOpenChange={(open) => {
+            if (!open && !confirming) close({ confirmed: false });
+          }}
+          onConfirm={(draft) => {
+            void handleConfirm(draft);
+          }}
         />
       ) : null}
     </ConfirmDialogContext.Provider>

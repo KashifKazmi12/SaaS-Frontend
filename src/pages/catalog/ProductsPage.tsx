@@ -1,5 +1,6 @@
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { BusinessSelect } from "@/components/business";
@@ -7,9 +8,13 @@ import { DynamicEntityFields } from "@/components/entity-fields/DynamicEntityFie
 import {
   CategorySelect,
   createEmptyVariation,
+  PackagingsEditor,
   ProductVariationsDialog,
   ProductVariationsEditor,
+  RecipeEditor,
+  recipeDraftFromProduct,
   UnitSelect,
+  type RecipeDraftLine,
 } from "@/components/catalog";
 import { PageShell } from "@/components/layout/PageShell";
 import { RequirePermission } from "@/components/layout/RouteGuards";
@@ -59,6 +64,7 @@ import {
 } from "@/constants/entityFields";
 import type {
   EntityFieldDefinition,
+  ProductPackaging,
   ProductRecord,
   ProductVariationRecord,
   VariationDraft,
@@ -129,6 +135,7 @@ function draftToPayload(draft: VariationDraft) {
 }
 
 export default function ProductsPage() {
+  const navigate = useNavigate();
   const { user, can } = useAuth();
   const { isSuperAdmin, showBusinessColumn, singleAssignedBusiness } = useBusinessVisibility();
   const crud = useCrudPage<ProductRecord>();
@@ -140,6 +147,9 @@ export default function ProductsPage() {
   const [schemaFields, setSchemaFields] = useState<EntityFieldDefinition[]>([]);
   const [schemaLoading, setSchemaLoading] = useState(false);
   const [unit, setUnit] = useState<ProductUnit>("piece");
+  const [packagings, setPackagings] = useState<ProductPackaging[]>([]);
+  const [recipeLines, setRecipeLines] = useState<RecipeDraftLine[]>([]);
+  const [showInventoryOptions, setShowInventoryOptions] = useState(false);
   const [images, setImages] = useState<ProductImage[]>([]);
   const [categoryId, setCategoryId] = useState("");
   const [businessId, setBusinessId] = useState("");
@@ -219,7 +229,10 @@ export default function ProductsPage() {
 
   async function loadProducts() {
     await crud.runLoad(async () => {
-      const data = await api.getProducts(list.params);
+      const data = await api.getProducts({
+        ...list.params,
+        productKind: "orderable",
+      });
       setProducts(data.items);
       setTotal(data.total);
       setTotalPages(data.totalPages);
@@ -269,6 +282,9 @@ export default function ProductsPage() {
     const defaultBusiness = user?.businesses?.[0]?.id || "";
     setFormValues(productFormValues());
     setUnit("piece");
+    setPackagings([]);
+    setRecipeLines([]);
+    setShowInventoryOptions(false);
     setImages([]);
     setCategoryId("");
     setBusinessId(defaultBusiness);
@@ -280,6 +296,11 @@ export default function ProductsPage() {
   async function populateForm(product: ProductRecord) {
     setFormValues(productFormValues(product));
     setUnit(normalizeProductUnit(product.unit || "piece"));
+    setPackagings(Array.isArray(product.packagings) ? product.packagings : []);
+    setRecipeLines(recipeDraftFromProduct(product.recipe));
+    setShowInventoryOptions(
+      Boolean(product.packagings?.length) || Boolean(product.recipe?.length)
+    );
     setImages(normalizeProductImages(product.images));
     setCategoryId(
       typeof product.category === "object" && product.category ? product.category._id : ""
@@ -298,6 +319,12 @@ export default function ProductsPage() {
     try {
       const detail = await api.getProduct(product._id);
       setHasVariations(detail.product.hasVariations);
+      setUnit(normalizeProductUnit(detail.product.unit || "piece"));
+      setPackagings(Array.isArray(detail.product.packagings) ? detail.product.packagings : []);
+      setRecipeLines(recipeDraftFromProduct(detail.product.recipe));
+      setShowInventoryOptions(
+        Boolean(detail.product.packagings?.length) || Boolean(detail.product.recipe?.length)
+      );
       setVariations(detail.variations.map(variationToDraft));
     } catch {
       setVariations([]);
@@ -342,6 +369,20 @@ export default function ProductsPage() {
 
     const payload = buildEntityPayload("product", { ...formValues, unit }, schemaFields);
     payload.unit = unit;
+    payload.productKind = "sellable";
+    payload.packagings = packagings
+      .filter((row) => row.unit && Number(row.factorToBase) > 0)
+      .map((row) => ({
+        unit: normalizeProductUnit(row.unit),
+        factorToBase: Number(row.factorToBase),
+        label: row.label || "",
+      }));
+    payload.recipe = recipeLines
+      .filter((row) => row.productId && Number(row.quantity) > 0)
+      .map((row) => ({
+        productId: row.productId,
+        quantity: Number(row.quantity),
+      }));
     payload.images = images;
     payload.categoryId = categoryId || null;
     payload.hasVariations = hasVariations;
@@ -393,7 +434,12 @@ export default function ProductsPage() {
   }
 
   async function handleExport() {
-    const data = await api.getProducts({ ...list.params, page: 1, limit: 100 });
+    const data = await api.getProducts({
+      ...list.params,
+      productKind: "orderable",
+      page: 1,
+      limit: 100,
+    });
     const rows = data.items.map((item) => ({
       name: item.name,
       description: item.description,
@@ -528,6 +574,13 @@ export default function ProductsPage() {
           onCreate={() => crud.startCreate(resetForm)}
           headerActions={
             <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => navigate(MODULE_PATHS.CATALOG_RAW_MATERIALS)}
+              >
+                Raw materials
+              </Button>
               <PermissionButton
                 modulePath={MODULE_PATH}
                 action="create"
@@ -600,6 +653,32 @@ export default function ProductsPage() {
           ) : (
             <p className="text-sm text-muted-foreground">Select a business to see its product fields.</p>
           )}
+
+          <div className="space-y-3">
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-auto px-0 text-sm text-muted-foreground"
+              onClick={() => setShowInventoryOptions((open) => !open)}
+            >
+              {showInventoryOptions ? "Hide inventory options" : "More options"}
+            </Button>
+            {showInventoryOptions ? (
+              <div className="space-y-4 rounded-lg border border-border p-4">
+                <PackagingsEditor
+                  baseUnit={unit}
+                  value={packagings}
+                  onChange={setPackagings}
+                />
+                <Separator />
+                <RecipeEditor
+                  businessId={businessId}
+                  value={recipeLines}
+                  onChange={setRecipeLines}
+                />
+              </div>
+            ) : null}
+          </div>
 
           <FileUploadField
             id="product-images"

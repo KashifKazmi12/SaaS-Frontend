@@ -21,5 +21,5 @@ export { PermissionIconButton } from "./PermissionIconButton";
 export { RowActions } from "./RowActions";
 export { StatusBadge } from "./StatusBadge";
 export { ConfirmDialog, ConfirmDialogProvider, useConfirm } from "./ConfirmDialog";
-export type { ConfirmDialogOptions } from "./ConfirmDialog";
+export type { ConfirmDialogOptions, ConfirmResult } from "./ConfirmDialog";
 export { PageLoader, Spinner } from "./PageLoader";

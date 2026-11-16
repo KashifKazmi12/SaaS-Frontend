@@ -7,8 +7,14 @@ import { BusinessGroupSelect, BusinessSelect } from "@/components/business";
 import { DynamicEntityFields } from "@/components/entity-fields/DynamicEntityFields";
 import { OrderCreateSuccessDialog } from "@/components/orders/OrderCreateSuccessDialog";
 import { OrderProductSelect } from "@/components/orders/OrderProductSelect";
+import { OrderStaffCodeField } from "@/components/orders/OrderStaffCodeField";
 import { PageShell } from "@/components/layout/PageShell";
 import { RequirePermission } from "@/components/layout/RouteGuards";
+import {
+  staffCodePayload,
+  useOrderStaffCodeRequired,
+  validateOrderStaffCode,
+} from "@/hooks/useOrderStaffGate";
 import {
   EnumSelect,
   FormField,
@@ -37,6 +43,7 @@ import { resolveMediaUrl } from "@/lib/media";
 import { MediaImage } from "@/components/shared/MediaImage";
 import { MODULE_PATHS } from "@/lib/modulePaths";
 import { formatMoney } from "@/lib/money";
+import { formatStockBreakdown } from "@/lib/stockDisplay";
 import type {
   EntityFieldDefinition,
   OrderCatalogProduct,
@@ -66,6 +73,7 @@ interface DraftItem {
   variationId: string;
   unitPrice: string;
   quantity: string;
+  sellUnit: string;
 }
 
 function newDraftItem(): DraftItem {
@@ -75,7 +83,20 @@ function newDraftItem(): DraftItem {
     variationId: "",
     unitPrice: "",
     quantity: "1",
+    sellUnit: "",
   };
+}
+
+function stockLeftLabel(product: OrderCatalogProduct | undefined, variationId: string) {
+  if (!product) return "";
+  const qty =
+    product.hasVariations && variationId
+      ? Number(
+          product.variations.find((row) => row._id === variationId)?.stockQuantity
+        ) || 0
+      : Number(product.stockQuantity) || 0;
+  if (product.hasVariations && !variationId) return "Select a variation to see stock";
+  return `In stock: ${formatStockBreakdown(qty, product.unit || "piece", product.packagings)}`;
 }
 
 function catalogUnitPrice(
@@ -106,11 +127,15 @@ function roundMoney(value: number) {
 export default function OrderCreatePage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { rememberStaffCodeRequired } = useOrderStaffCodeRequired();
   const sessionGroups = user?.businessGroups ?? [];
   const sessionBusinesses = user?.businesses ?? [];
   const [productCache, setProductCache] = useState<Record<string, OrderCatalogProduct>>(
     {}
   );
+  const [staffCodeRequired, setStaffCodeRequired] = useState(false);
+  const [staffCode, setStaffCode] = useState("");
+  const [staffCodeError, setStaffCodeError] = useState("");
   const [groupId, setGroupId] = useState(
     () => (sessionGroups.length === 1 ? sessionGroups[0].id : "")
   );
@@ -254,6 +279,9 @@ export default function OrderCreatePage() {
       setSchemaFields([]);
       setFormValues({});
       setItems([newDraftItem()]);
+      setStaffCodeRequired(false);
+      setStaffCode("");
+      setStaffCodeError("");
       return;
     }
 
@@ -274,6 +302,11 @@ export default function OrderCreatePage() {
         const methods = resolvePortalMethods(catalogMeta.portalPaymentMethods);
         setPortalPaymentMethods(methods);
         setPaymentMethod(preferredPaymentMethod(methods));
+        const required = Boolean(catalogMeta.sharedLoginStaffCode);
+        rememberStaffCodeRequired(businessId, required);
+        setStaffCodeRequired(required);
+        setStaffCode("");
+        setStaffCodeError("");
       })
       .catch((err) => {
         if (!cancelled) {
@@ -383,6 +416,8 @@ export default function OrderCreatePage() {
     setPaymentMethod(preferredPaymentMethod(portalPaymentMethods));
     setDiscountInput("");
     setDiscountMode("fixed");
+    setStaffCode("");
+    setStaffCodeError("");
     setError("");
     setMessage("");
   }
@@ -449,12 +484,26 @@ export default function OrderCreatePage() {
           variationId: item.variationId || undefined,
           quantity: Number(item.quantity) || 1,
           unitPrice,
+          // Orders are always in the product base unit (piece).
+          sellUnit: product?.unit || "piece",
         };
       });
 
     if (payloadItems.length === 0) {
       setError("Add at least one product.");
       return;
+    }
+
+    let resolvedStaffCode = "";
+    if (staffCodeRequired) {
+      setStaffCodeError("");
+      try {
+        const staff = await validateOrderStaffCode(businessId, staffCode);
+        resolvedStaffCode = staff.staffCode;
+      } catch (err) {
+        setStaffCodeError(err instanceof Error ? err.message : "Invalid staff code.");
+        return;
+      }
     }
 
     setSaving(true);
@@ -475,6 +524,7 @@ export default function OrderCreatePage() {
               : 0,
         discountAmount: discountAmount > 0 ? discountAmount : 0,
         ...entityPayload,
+        ...staffCodePayload(resolvedStaffCode),
       });
       setSuccessOrder(order);
       setSuccessCheckoutUrl(order.checkoutUrl || null);
@@ -568,13 +618,14 @@ export default function OrderCreatePage() {
                         ? resolveMediaUrl(product.imagePath)
                         : "";
                       const hasVariations = Boolean(product?.hasVariations);
+                      const stockLabel = stockLeftLabel(product, item.variationId);
                       return (
                         <div
                           key={item.key}
                           className={
                             hasVariations
-                              ? "grid gap-3 rounded-xl border p-3 sm:grid-cols-[64px_1fr_1fr_110px_90px_auto]"
-                              : "grid gap-3 rounded-xl border p-3 sm:grid-cols-[64px_1fr_110px_90px_auto]"
+                              ? "grid gap-3 rounded-xl border p-3 sm:grid-cols-[64px_1fr_1fr_90px_110px_auto]"
+                              : "grid gap-3 rounded-xl border p-3 sm:grid-cols-[64px_1fr_90px_110px_auto]"
                           }
                           onKeyDown={(event) => handleItemRowKeyDown(event, item.key)}
                         >
@@ -589,41 +640,48 @@ export default function OrderCreatePage() {
                               <ImageIcon className="text-muted-foreground size-4" />
                             )}
                           </div>
-                          <OrderProductSelect
-                            id={`product-${item.key}`}
-                            groupId={groupId}
-                            businessId={businessId}
-                            value={item.productId}
-                            selectedProduct={product || null}
-                            onSelect={(next) => {
-                              if (!next) {
-                                setProductCache((current) => {
-                                  const copy = { ...current };
-                                  delete copy[item.productId];
-                                  return copy;
-                                });
+                          <div className="min-w-0">
+                            <OrderProductSelect
+                              id={`product-${item.key}`}
+                              groupId={groupId}
+                              businessId={businessId}
+                              value={item.productId}
+                              selectedProduct={product || null}
+                              onSelect={(next) => {
+                                if (!next) {
+                                  setProductCache((current) => {
+                                    const copy = { ...current };
+                                    delete copy[item.productId];
+                                    return copy;
+                                  });
+                                  updateItem(item.key, {
+                                    productId: "",
+                                    variationId: "",
+                                    unitPrice: "",
+                                    sellUnit: "",
+                                  });
+                                  return;
+                                }
+                                setProductCache((current) => ({
+                                  ...current,
+                                  [next._id]: next,
+                                }));
                                 updateItem(item.key, {
-                                  productId: "",
+                                  productId: next._id,
                                   variationId: "",
-                                  unitPrice: "",
+                                  unitPrice: next.hasVariations
+                                    ? ""
+                                    : String(catalogUnitPrice(next, "") || ""),
+                                  sellUnit: next.unit || "piece",
                                 });
-                                return;
-                              }
-                              setProductCache((current) => ({
-                                ...current,
-                                [next._id]: next,
-                              }));
-                              updateItem(item.key, {
-                                productId: next._id,
-                                variationId: "",
-                                unitPrice: next.hasVariations
-                                  ? ""
-                                  : String(catalogUnitPrice(next, "") || ""),
-                              });
-                            }}
-                            required
-                            onEnterWhenClosed={() => handleItemEnter(item.key)}
-                          />
+                              }}
+                              required
+                              onEnterWhenClosed={() => handleItemEnter(item.key)}
+                            />
+                            {stockLabel ? (
+                              <p className="text-muted-foreground mt-1 text-xs">{stockLabel}</p>
+                            ) : null}
+                          </div>
                           {hasVariations ? (
                             <EnumSelect
                               id={`variation-${item.key}`}
@@ -862,12 +920,30 @@ export default function OrderCreatePage() {
                 </CardContent>
               </Card>
 
+              {staffCodeRequired ? (
+                <OrderStaffCodeField
+                  id="order-create-staff-code"
+                  value={staffCode}
+                  onChange={(value) => {
+                    setStaffCode(value);
+                    setStaffCodeError("");
+                  }}
+                  error={staffCodeError}
+                  disabled={saving}
+                />
+              ) : null}
+
               <PermissionButton
                 modulePath={MODULE_PATH}
                 action="create"
                 type="submit"
                 className="w-full"
-                disabled={saving || schemaLoading || !businessId}
+                disabled={
+                  saving ||
+                  schemaLoading ||
+                  !businessId ||
+                  (staffCodeRequired && !staffCode.trim())
+                }
               >
                 {saving ? "Creating..." : "Create order"}
               </PermissionButton>
@@ -880,6 +956,7 @@ export default function OrderCreatePage() {
           order={successOrder}
           checkoutUrl={successCheckoutUrl}
           businessName={branchOptions.find((row) => row.id === businessId)?.name}
+          sessionUserName={user?.name || ""}
           onAddNew={handleSuccessAddNew}
           onViewDetail={handleSuccessViewDetail}
           onOpenChange={(open) => {

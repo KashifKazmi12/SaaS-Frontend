@@ -41,6 +41,28 @@ export const PRODUCT_UNIT_OPTIONS = PRODUCT_UNITS.map((value) => ({
   label: PRODUCT_UNIT_LABELS[value],
 }));
 
+export const PRODUCT_KINDS = ["sellable", "raw", "both"] as const;
+
+export type ProductKind = (typeof PRODUCT_KINDS)[number];
+
+export const PRODUCT_KIND_LABELS: Record<ProductKind, string> = {
+  sellable: "Sellable",
+  raw: "Raw material",
+  both: "Sellable & raw",
+};
+
+export const PRODUCT_KIND_OPTIONS = PRODUCT_KINDS.map((value) => ({
+  value,
+  label: PRODUCT_KIND_LABELS[value],
+}));
+
+export function normalizeProductKind(value: string, fallback: ProductKind = "sellable"): ProductKind {
+  const normalized = value.trim().toLowerCase();
+  return PRODUCT_KINDS.includes(normalized as ProductKind)
+    ? (normalized as ProductKind)
+    : fallback;
+}
+
 export const VARIATION_OPTION_TYPES = [
   "Color",
   "Size",

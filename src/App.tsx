@@ -8,6 +8,7 @@ import { GuestRoute } from "@/components/layout/RouteGuards";
 import LoginPage from "@/pages/LoginPage";
 import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
 import ProductsPage from "@/pages/catalog/ProductsPage";
+import RawMaterialsPage from "@/pages/catalog/RawMaterialsPage";
 import CategoriesPage from "@/pages/catalog/CategoriesPage";
 import CustomersPage from "@/pages/customers/CustomersPage";
 import CustomerDetailPage from "@/pages/customers/CustomerDetailPage";
@@ -71,6 +72,7 @@ export default function App() {
             <Route path="/businesses/list/:businessId/settings" element={<BusinessSettingsPage />} />
             <Route path="/catalog" element={<Navigate to="/catalog/products" replace />} />
             <Route path="/catalog/products" element={<ProductsPage />} />
+            <Route path="/catalog/raw-materials" element={<RawMaterialsPage />} />
             <Route path="/catalog/categories" element={<CategoriesPage />} />
             <Route path="/customers" element={<CustomersPage />} />
             <Route path="/customers/:customerId" element={<CustomerDetailPage />} />

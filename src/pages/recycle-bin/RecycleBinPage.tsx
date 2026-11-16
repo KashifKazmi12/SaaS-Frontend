@@ -83,12 +83,12 @@ export default function RecycleBinPage() {
   }, []);
 
   async function handleRestore(row: RecycleBinRecord) {
-    const confirmed = await confirm({
+    const result = await confirm({
       title: `Restore ${row.title}?`,
       description: "It will show in the live list again.",
       confirmLabel: "Restore",
     });
-    if (!confirmed) return;
+    if (!result.confirmed) return;
 
     await crud.runMutation(() => api.restoreRecycleBinItem(row.type, row.id).then(() => undefined), {
       successMessage: `${row.typeLabel} restored.`,

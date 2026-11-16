@@ -23,6 +23,11 @@ const MODULE_PATH = MODULE_PATHS.ACTIVITY_LOG;
 const ACTION_FILTER_OPTIONS = [
   { value: ALL_FILTER, label: "All actions" },
   { value: "stock.update", label: "Stock update" },
+  { value: "order.create", label: "Order create" },
+  { value: "order.update", label: "Order update" },
+  { value: "order.refund_wallet", label: "Order refund (wallet)" },
+  { value: "order.refund_stripe", label: "Order refund (Stripe)" },
+  { value: "order.remove", label: "Order remove" },
 ];
 
 function formatWhen(value: string) {
@@ -48,6 +53,11 @@ function formatStockChange(row: ActivityLogRecord) {
 
 function actionLabel(action: string) {
   if (action === "stock.update") return "Stock update";
+  if (action === "order.create") return "Order create";
+  if (action === "order.update") return "Order update";
+  if (action === "order.refund_wallet") return "Order refund (wallet)";
+  if (action === "order.refund_stripe") return "Order refund (Stripe)";
+  if (action === "order.remove") return "Order remove";
   return action || "—";
 }
 

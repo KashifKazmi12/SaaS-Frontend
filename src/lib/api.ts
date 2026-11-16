@@ -366,6 +366,25 @@ export const api = {
 
   getOrder: (id: string) => request<import("@/types").OrderRecord>(`/orders/${id}`),
 
+  resolveOrderStaffCode: (payload: { businessId: string; staffCode: string }) =>
+    request<{ _id: string; name: string; username: string; staffCode: string }>(
+      "/orders/resolve-staff-code",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }
+    ),
+
+  getOrderStaffCodeRequired: (businessId: string) =>
+    request<{ required: boolean }>(
+      `/orders/staff-code-required${buildQuery({ businessId })}`
+    ),
+
+  getOrderHistory: (id: string, params?: ListQueryParams) =>
+    request<ListResponse<import("@/types").ActivityLogRecord>>(
+      `/orders/${id}/history${buildQuery(params)}`
+    ),
+
   getOrderPaymentLink: (id: string) =>
     request<{ checkoutUrl: string }>(`/orders/${id}/payment-link`, { method: "POST" }),
 
@@ -379,6 +398,7 @@ export const api = {
     request<{
       items: import("@/types").OrderCatalogProduct[];
       portalPaymentMethods?: import("@/constants/commerce").CheckoutPaymentMethod[];
+      sharedLoginStaffCode?: boolean;
       total: number;
       page: number;
       limit: number;
@@ -397,18 +417,23 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  refundOrderToWallet: (id: string) =>
+  deleteOrder: (id: string, payload?: Record<string, unknown>) =>
+    request<{ message: string }>(`/orders/${id}`, {
+      method: "DELETE",
+      body: JSON.stringify(payload || {}),
+    }),
+
+  refundOrderToWallet: (id: string, payload?: Record<string, unknown>) =>
     request<import("@/types").OrderRecord>(`/orders/${id}/refund-to-wallet`, {
       method: "POST",
+      body: JSON.stringify(payload || {}),
     }),
 
-  refundOrderViaStripe: (id: string) =>
+  refundOrderViaStripe: (id: string, payload?: Record<string, unknown>) =>
     request<import("@/types").OrderRecord>(`/orders/${id}/refund-stripe`, {
       method: "POST",
+      body: JSON.stringify(payload || {}),
     }),
-
-  deleteOrder: (id: string) =>
-    request<{ message: string }>(`/orders/${id}`, { method: "DELETE" }),
 
   getStock: (params?: ListQueryParams) =>
     request<ListResponse<import("@/types").StockRecord>>(`/stock${buildQuery(params)}`),
@@ -423,6 +448,15 @@ export const api = {
   updateStock: (id: string, payload: Record<string, unknown>) =>
     request<import("@/types").StockRecord>(`/stock/${id}`, {
       method: "PUT",
+      body: JSON.stringify(payload),
+    }),
+
+  receiveStock: (
+    id: string,
+    payload: { quantity: number; packagingUnit?: string; unit?: string }
+  ) =>
+    request<import("@/types").StockRecord>(`/stock/${id}/receive`, {
+      method: "POST",
       body: JSON.stringify(payload),
     }),
 

@@ -25,6 +25,10 @@ import {
 import { useCrudPage } from "@/hooks/useCrudPage";
 import { resolveListBusinessId, useListSchemaFields } from "@/hooks/useListSchemaFields";
 import { useListQuery } from "@/hooks/useListQuery";
+import {
+  staffCodePayload,
+  useOrderStaffCodeRequired,
+} from "@/hooks/useOrderStaffGate";
 import { getBusinessDisplayName } from "@/lib/business";
 import {
   formatCustomListValue,
@@ -44,6 +48,13 @@ import { cn } from "@/lib/utils";
 import type { OrderRecord, OrderStatus } from "@/types";
 
 const MODULE_PATH = MODULE_PATHS.ORDERS;
+
+function orderBusinessId(order: OrderRecord) {
+  const first = order.items?.[0]?.business;
+  if (first && typeof first === "object") return first._id;
+  if (typeof first === "string") return first;
+  return "";
+}
 
 function formatDateTime(value?: string) {
   if (!value) return "—";
@@ -77,6 +88,7 @@ export default function OrdersPage() {
   const { options: businessOptions } = useBusinessOptions(isSuperAdmin ? "all" : "assigned");
   const crud = useCrudPage<OrderRecord>();
   const { confirm } = useConfirm();
+  const { isStaffCodeRequired } = useOrderStaffCodeRequired();
   const list = useListQuery();
   const [orders, setOrders] = useState<OrderRecord[]>([]);
   const [total, setTotal] = useState(0);
@@ -181,32 +193,51 @@ export default function OrdersPage() {
   async function handleQuickStatus(order: OrderRecord, nextStatus: OrderStatus) {
     const payload: Record<string, unknown> = { status: nextStatus };
     let successMessage = `Order marked ${orderStatusLabel(nextStatus).toLowerCase()}.`;
-
-    if (
+    const businessId = orderBusinessId(order);
+    const staffRequired = await isStaffCodeRequired(businessId);
+    const needsPaymentConfirm =
       nextStatus === "completed" &&
       order.paymentStatus === "unpaid" &&
       order.total > 0 &&
-      order.paymentMethod !== "stripe"
-    ) {
-      const confirmed = await confirm({
-        title: "Confirm payment before completing?",
-        description:
-          "Please confirm this order’s remaining payment is paid, then it will be marked completed.",
-        confirmLabel: "Mark paid & completed",
+      order.paymentMethod !== "stripe";
+
+    let resolvedStaffCode = "";
+    if (needsPaymentConfirm || staffRequired) {
+      const result = await confirm({
+        title: needsPaymentConfirm
+          ? "Confirm payment before completing?"
+          : nextStatus === "completed"
+            ? "Complete this order?"
+            : "Confirm this order?",
+        description: needsPaymentConfirm
+          ? "Please confirm this order’s remaining payment is paid, then it will be marked completed."
+          : `Mark order ${order.orderNumber} as ${orderStatusLabel(nextStatus).toLowerCase()}.`,
+        confirmLabel: needsPaymentConfirm
+          ? "Mark paid & completed"
+          : nextStatus === "completed"
+            ? "Complete"
+            : "Confirm",
         cancelLabel: "Go back",
+        staffCodeBusinessId: staffRequired ? businessId : undefined,
       });
-      if (!confirmed) return;
-      payload.paymentStatus = "paid";
-      if (order.paymentMethod === "unpaid") {
-        payload.paymentMethod = "cash";
+      if (!result.confirmed) return;
+      resolvedStaffCode = result.staffCode || "";
+      if (needsPaymentConfirm) {
+        payload.paymentStatus = "paid";
+        if (order.paymentMethod === "unpaid") {
+          payload.paymentMethod = "cash";
+        }
+        successMessage = "Order marked paid and completed.";
       }
-      successMessage = "Order marked paid and completed.";
     }
 
     setQuickUpdatingId(order._id);
     await crud.runMutation(
       async () => {
-        await api.updateOrder(order._id, payload);
+        await api.updateOrder(order._id, {
+          ...payload,
+          ...staffCodePayload(resolvedStaffCode),
+        });
       },
       {
         successMessage,
@@ -256,13 +287,24 @@ export default function OrdersPage() {
   }
 
   async function handleDelete(order: OrderRecord) {
-    await crud.runDelete(
-      order.orderNumber,
+    const businessId = orderBusinessId(order);
+    const staffRequired = await isStaffCodeRequired(businessId);
+    const result = await confirm({
+      title: `Remove ${order.orderNumber}?`,
+      description: "This action cannot be undone.",
+      confirmLabel: "Remove",
+      variant: "destructive",
+      staffCodeBusinessId: staffRequired ? businessId : undefined,
+    });
+    if (!result.confirmed) return;
+
+    await crud.runMutation(
       async () => {
-        await api.deleteOrder(order._id);
+        await api.deleteOrder(order._id, staffCodePayload(result.staffCode));
       },
       {
         successMessage: "Order removed.",
+        closeDialog: false,
         reload: loadOrders,
         fallbackError: "Unable to remove order.",
       }
@@ -380,6 +422,7 @@ export default function OrdersPage() {
             />
           }
         />
+
       </PageShell>
     </RequirePermission>
   );

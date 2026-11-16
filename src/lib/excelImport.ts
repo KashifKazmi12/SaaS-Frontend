@@ -92,6 +92,13 @@ export interface ImportTargetField {
   required?: boolean;
   /** Allow mapping multiple source columns into one value. */
   multi?: boolean;
+  /**
+   * Packaging map: pick a pack unit (pack/box/…) plus an Excel column for
+   * “how many base units in one pack”.
+   */
+  packaging?: boolean;
+  /** Use a different alias list key when auto-mapping (e.g. stock “SKU or name”). */
+  autoMapAs?: string;
 }
 
 /** Guess source column for a target field from header text. */
@@ -101,7 +108,34 @@ export function autoMapColumns(
 ): Record<string, string[]> {
   const map: Record<string, string[]> = {};
   const aliases: Record<string, string[]> = {
-    sku: ["sku", "item code", "itemcode", "product code", "code", "article"],
+    sku: [
+      "sku",
+      "aliasname",
+      "alias name",
+      "item code",
+      "itemcode",
+      "product code",
+      "code",
+      "article",
+      // Do NOT include plain "name" — sheets often have a second Name/manufacturer
+      // column; that collapses tens of thousands of rows into ~1k manufacturers.
+    ],
+    // Stock import may map "SKU or name" → allow product/item name there only.
+    "sku-or-name": [
+      "sku",
+      "aliasname",
+      "alias name",
+      "item code",
+      "itemcode",
+      "product code",
+      "code",
+      "article",
+      "item name",
+      "product name",
+      "product",
+      "item",
+      "name",
+    ],
     quantity: ["quantity", "qty", "stock", "on hand", "onhand", "balance"],
     minStock: ["min stock", "minstock", "reorder", "reorder level", "minimum"],
     name: ["name", "product", "product name", "item", "item name", "title"],
@@ -113,6 +147,17 @@ export function autoMapColumns(
     variation: ["variation", "variant", "size", "color", "option"],
     description: ["description", "details", "desc"],
     importNotes: ["notes", "note", "remarks", "comment", "extra", "reference"],
+    packagingFactor: [
+      "packunits",
+      "pack units",
+      "pack qty",
+      "packqty",
+      "packing",
+      "pack size",
+      "pcs per pack",
+      "pieces per pack",
+      "factor",
+    ],
   };
 
   const normalized = columns.map((col) => ({
@@ -120,12 +165,33 @@ export function autoMapColumns(
     key: col.toLowerCase().replace(/[_\-]+/g, " ").replace(/\s+/g, " ").trim(),
   }));
 
-  for (const field of fields) {
-    const wanted = aliases[field.key] || [field.key.toLowerCase()];
-    const hit = normalized.find((entry) =>
-      wanted.some((alias) => entry.key === alias || entry.key.includes(alias))
+  /** Whole-word / exact only — avoids "unit" matching PackUnits. */
+  function columnMatches(entryKey: string, alias: string) {
+    const a = alias.trim().toLowerCase();
+    if (!a) return false;
+    if (entryKey === a) return true;
+    // Require alias as its own token so "unit" ≠ "packunits".
+    const escaped = a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(?:^|\\s)${escaped}(?:\\s|$)`).test(entryKey);
+  }
+
+  const used = new Set<string>();
+  // Prefer packaging factor over unit when both could claim the same header.
+  const fieldOrder = [
+    ...fields.filter((field) => field.key === "packagingFactor"),
+    ...fields.filter((field) => field.key !== "packagingFactor"),
+  ];
+
+  for (const field of fieldOrder) {
+    const aliasKey = field.autoMapAs || field.key;
+    const wanted = aliases[aliasKey] || [field.key.toLowerCase()];
+    const hit = normalized.find(
+      (entry) =>
+        !used.has(entry.col) &&
+        wanted.some((alias) => columnMatches(entry.key, alias))
     );
     map[field.key] = hit ? [hit.col] : [];
+    if (hit) used.add(hit.col);
   }
 
   return map;
@@ -155,5 +221,32 @@ export function applyColumnMap(
       }
     }
     return out;
+  });
+}
+
+function roundMoney(value: number) {
+  return Math.round(value * 10000) / 10000;
+}
+
+/**
+ * When packaging qty is mapped, sheet price/cost are pack-level.
+ * Convert to base-unit (piece) values: packPrice ÷ unitsInPack.
+ */
+export function applyPackPriceToBaseUnit(
+  rows: Record<string, string>[]
+): Record<string, string>[] {
+  return rows.map((row) => {
+    const factor = Number(String(row.packagingFactor || "").replace(/,/g, ""));
+    if (!Number.isFinite(factor) || factor <= 0) return row;
+
+    const next = { ...row };
+    for (const key of ["price", "costPrice"] as const) {
+      const raw = String(row[key] || "").trim();
+      if (!raw) continue;
+      const packValue = Number(raw.replace(/,/g, ""));
+      if (!Number.isFinite(packValue)) continue;
+      next[key] = String(roundMoney(packValue / factor));
+    }
+    return next;
   });
 }

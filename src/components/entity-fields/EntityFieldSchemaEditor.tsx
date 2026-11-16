@@ -136,13 +136,13 @@ export function EntityFieldSchemaEditor({
   }
 
   async function handleRemove(field: EntityFieldDefinition) {
-    const confirmed = await confirm({
+    const result = await confirm({
       title: `Remove ${field.label}?`,
       description: "Saved values for this field will also be removed.",
       confirmLabel: "Remove",
       variant: "destructive",
     });
-    if (!confirmed) return;
+    if (!result.confirmed) return;
     onChange(fields.filter((item) => item.key !== field.key));
   }
 

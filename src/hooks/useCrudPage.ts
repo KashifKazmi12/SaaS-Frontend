@@ -65,13 +65,13 @@ export function useCrudPage<T>() {
     async (itemName: string, mutation: () => Promise<void>, options: RunDeleteOptions) => {
       if (options.canDelete && !options.canDelete()) return;
 
-      const confirmed = await confirm({
+      const result = await confirm({
         title: `Remove ${itemName}?`,
         description: "This action cannot be undone.",
         confirmLabel: "Remove",
         variant: "destructive",
       });
-      if (!confirmed) return;
+      if (!result.confirmed) return;
 
       await runMutation(mutation, {
         successMessage: options.successMessage,
@@ -102,6 +102,7 @@ export function useCrudPage<T>() {
     dialogOpen,
     setDialogOpen,
     editing,
+    setEditing,
     clearFeedback,
     runLoad,
     runMutation,

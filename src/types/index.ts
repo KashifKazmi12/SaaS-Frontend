@@ -116,6 +116,7 @@ export interface UserRecord {
   _id: string;
   name: string;
   username: string;
+  staffCode?: string;
   email: string;
   isActive: boolean;
   isSuperAdmin: boolean;
@@ -143,6 +144,8 @@ export interface BusinessGroupRecord {
 export interface BusinessOrderSettings {
   defaultStatus: "pending" | "confirmed" | "preparing" | "in_transit" | "completed";
   defaultPaymentStatus: "unpaid" | "paid";
+  /** When true, order actions ask for a staff code under a shared login. */
+  sharedLoginStaffCode?: boolean;
 }
 
 export interface BusinessRecord {
@@ -161,6 +164,18 @@ export interface BusinessRecord {
   businessGroup?: { _id: string; name: string } | string | null;
 }
 
+export interface ProductPackaging {
+  unit: string;
+  factorToBase: number;
+  label?: string;
+}
+
+export interface ProductRecipeLine {
+  product: string | { _id: string; name?: string; sku?: string; unit?: string; productKind?: string };
+  variation?: string | null;
+  quantity: number;
+}
+
 export interface ProductRecord {
   _id: string;
   name: string;
@@ -170,6 +185,9 @@ export interface ProductRecord {
   sku: string;
   barcode: string;
   unit: string;
+  productKind?: string;
+  packagings?: ProductPackaging[];
+  recipe?: ProductRecipeLine[];
   images: import("@/lib/media").ProductImage[];
   hasVariations: boolean;
   variationCount?: number;
@@ -328,6 +346,8 @@ export interface OrderRecord {
   notes: string;
   custom?: Record<string, unknown>;
   stockApplied: boolean;
+  /** Staff who placed the order (staff code when enabled, else logged-in user). */
+  placedBy?: { _id: string; name: string } | string | null;
   /** Present when admin/storefront create starts a Stripe Checkout session. */
   checkoutUrl?: string | null;
   isActive: boolean;
@@ -343,10 +363,28 @@ export interface OrderCatalogProduct {
   sku: string;
   business: string;
   imagePath?: string;
-  variations: Array<{ _id: string; name: string; price: number; sku: string }>;
+  unit?: string;
+  packagings?: ProductPackaging[];
+  productKind?: string;
+  /** On-hand quantity in base units (non-variation products). */
+  stockQuantity?: number;
+  variations: Array<{
+    _id: string;
+    name: string;
+    price: number;
+    sku: string;
+    stockQuantity?: number;
+  }>;
 }
 
 export type StockLevel = "in" | "low" | "out";
+
+export interface StockSellUnit {
+  unit: string;
+  factorToBase: number;
+  isBase?: boolean;
+  label?: string;
+}
 
 export interface StockRecord {
   _id: string;
@@ -356,6 +394,9 @@ export interface StockRecord {
   stockLevel: StockLevel;
   sku: string;
   unit: string;
+  productKind?: string;
+  packagings?: ProductPackaging[];
+  sellUnits?: StockSellUnit[];
   isActive: boolean;
   product:
     | {
@@ -363,6 +404,8 @@ export interface StockRecord {
         name: string;
         sku: string;
         unit: string;
+        productKind?: string;
+        packagings?: ProductPackaging[];
         hasVariations: boolean;
         isActive: boolean;
         category?: { _id: string; name: string } | string | null;

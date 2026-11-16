@@ -20,6 +20,8 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: Number(env.VITE_DEV_PORT) || 5173,
+      // Cloudflare quick tunnels (*.trycloudflare.com) and similar.
+      allowedHosts: [".trycloudflare.com", "localhost"],
       proxy: {
         "/api": {
           target: proxyTarget,

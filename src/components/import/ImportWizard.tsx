@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+} from "react";
 import { FileSpreadsheet, Upload } from "lucide-react";
 import { BusinessGroupSelect, BusinessSelect } from "@/components/business";
 import { FieldLabel } from "@/components/shared/FormField";
@@ -16,6 +23,7 @@ import { useBusinessOptions, type BusinessOptionScope } from "@/hooks/useBusines
 import { cn } from "@/lib/utils";
 import {
   applyColumnMap,
+  applyPackPriceToBaseUnit,
   autoMapColumns,
   parseExcelFile,
   type ImportTargetField,
@@ -23,6 +31,18 @@ import {
   type SheetRow,
 } from "@/lib/excelImport";
 import type { ImportResultSummary, StockQuantityMode } from "./importFields";
+import {
+  defaultStockImportUnit,
+  resolveStockImportProduct,
+  StockImportProductCell,
+  stockImportSellUnitOptions,
+} from "./StockImportProductCell";
+import {
+  PRODUCT_UNIT_OPTIONS,
+  normalizeProductUnit,
+  type ProductUnit,
+} from "@/constants/catalog";
+import type { ProductRecord } from "@/types";
 
 type Step = "scope" | "file" | "map" | "preview" | "done";
 
@@ -40,6 +60,8 @@ export interface ImportWizardProps {
   title: string;
   fields: ImportTargetField[];
   businessScope?: BusinessOptionScope;
+  /** Stock import only: preview shows every row as editable. Product import stays read-only sample. */
+  editablePreview?: boolean;
   onImport: (payload: {
     businessId: string;
     rows: Record<string, string>[];
@@ -150,6 +172,7 @@ export function ImportWizard({
   title,
   fields,
   businessScope = "assigned",
+  editablePreview = false,
   onImport,
   onFinished,
 }: ImportWizardProps) {
@@ -168,9 +191,22 @@ export function ImportWizard({
   const [importProgress, setImportProgress] = useState("");
   const [result, setResult] = useState<ImportResultSummary | null>(null);
   const [quantityMode, setQuantityMode] = useState<StockQuantityMode>("add");
+  /** Pack unit for optional packaging map (same for the whole file). */
+  const [packagingUnit, setPackagingUnit] = useState<ProductUnit>("pack");
+  /** Editable copy of mapped rows — corrected on the preview step before import. */
+  const [editableRows, setEditableRows] = useState<Record<string, string>[]>([]);
+  /** Stock preview: sku/name → whether a catalog product matches. */
+  const [skuMatchByValue, setSkuMatchByValue] = useState<Record<string, boolean>>(
+    {}
+  );
+  const [skuProductByValue, setSkuProductByValue] = useState<
+    Record<string, ProductRecord>
+  >({});
+  const [skuMatchChecking, setSkuMatchChecking] = useState(false);
 
   const supportsQuantity = fields.some((field) => field.key === "quantity");
   const quantityMapped = (mapping.quantity || []).length > 0;
+  const hasPackagingField = fields.some((field) => field.packaging);
 
   const scope = useMemo(
     () => resolveScopeState(groupOptions, businessOptions, groupId),
@@ -201,6 +237,11 @@ export function ImportWizard({
     setSaving(false);
     setResult(null);
     setQuantityMode("add");
+    setPackagingUnit("pack");
+    setEditableRows([]);
+    setSkuMatchByValue({});
+    setSkuProductByValue({});
+    setSkuMatchChecking(false);
     setStep(initial.needsScopeStep ? "scope" : "file");
   }, [open, groupOptions, businessOptions]);
 
@@ -223,12 +264,107 @@ export function ImportWizard({
     }
   }, [open, step, scope.autoBusinessId, scope.businessesInScope, businessId]);
 
+  const packagingMapped = Boolean((mapping.packagingFactor || [])[0]);
+
   const mappedRows = useMemo(() => {
     if (!sheet) return [] as Record<string, string>[];
-    return applyColumnMap(sheet.rows, mapping, fields);
-  }, [sheet, mapping, fields]);
+    let rows = applyColumnMap(sheet.rows, mapping, fields);
+    if (!hasPackagingField || !packagingMapped || !packagingUnit) return rows;
+    rows = rows.map((row) => ({
+      ...row,
+      packagingUnit,
+    }));
+    // Pack-level sheet prices → per base unit (piece).
+    return applyPackPriceToBaseUnit(rows);
+  }, [sheet, mapping, fields, hasPackagingField, packagingMapped, packagingUnit]);
 
-  const previewRows = mappedRows.slice(0, 8);
+  const importRows =
+    editablePreview && editableRows.length ? editableRows : mappedRows;
+  const previewSampleRows = mappedRows.slice(0, 8);
+  const stockSkuCodesKey = useMemo(() => {
+    if (!editablePreview) return "";
+    return importRows.map((row) => String(row.sku || "").trim()).join("\n");
+  }, [editablePreview, importRows]);
+
+  /** Validate stock preview SKU/name cells against the catalog (exact sku or name). */
+  useEffect(() => {
+    if (!open || step !== "preview" || !editablePreview || !businessId) {
+      return;
+    }
+
+    const codes = [
+      ...new Set(
+        stockSkuCodesKey
+          .split("\n")
+          .map((code) => code.trim())
+          .filter(Boolean)
+      ),
+    ];
+
+    if (!codes.length) {
+      setSkuMatchByValue({});
+      setSkuProductByValue({});
+      setSkuMatchChecking(false);
+      return;
+    }
+
+    let cancelled = false;
+    setSkuMatchChecking(true);
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        const entries = await Promise.all(
+          codes.map(async (code) => {
+            try {
+              const product = await resolveStockImportProduct(businessId, code);
+              return [code, product] as const;
+            } catch {
+              return [code, null] as const;
+            }
+          })
+        );
+        if (cancelled) return;
+        const matchMap: Record<string, boolean> = {};
+        const productMap: Record<string, ProductRecord> = {};
+        for (const [code, product] of entries) {
+          matchMap[code] = Boolean(product);
+          if (product) productMap[code] = product;
+        }
+        setSkuMatchByValue(matchMap);
+        setSkuProductByValue(productMap);
+        setSkuMatchChecking(false);
+      })();
+    }, 280);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [open, step, editablePreview, businessId, stockSkuCodesKey]);
+
+  /** Seed / repair packaging unit once the matched product is known. */
+  useEffect(() => {
+    if (!open || step !== "preview" || !editablePreview || skuMatchChecking) return;
+
+    setEditableRows((current) => {
+      let changed = false;
+      const next = current.map((row) => {
+        const code = String(row.sku || "").trim();
+        const product = skuProductByValue[code];
+        if (!product) return row;
+        const options = stockImportSellUnitOptions(product);
+        const rawUnit = String(row.packagingUnit || "").trim();
+        const currentUnit = rawUnit ? normalizeProductUnit(rawUnit) : "";
+        if (currentUnit && options.some((option) => option.unit === currentUnit)) {
+          return row;
+        }
+        const fallback = defaultStockImportUnit(product);
+        changed = true;
+        return { ...row, packagingUnit: fallback };
+      });
+      return changed ? next : current;
+    });
+  }, [open, step, editablePreview, skuMatchChecking, skuProductByValue]);
+
   const requiredReady = fields
     .filter((field) => field.required)
     .every((field) => (mapping[field.key] || []).length > 0);
@@ -236,6 +372,21 @@ export function ImportWizard({
   const scopeReady =
     Boolean(businessId) &&
     (!scope.showGroupPicker || Boolean(scope.effectiveGroupId));
+
+  const stockPreviewMismatchCount = useMemo(() => {
+    if (!editablePreview) return 0;
+    return importRows.reduce((count, row) => {
+      const code = String(row.sku || "").trim();
+      if (!code || skuMatchByValue[code] !== true) return count + 1;
+      return count;
+    }, 0);
+  }, [editablePreview, importRows, skuMatchByValue]);
+
+  const stockPreviewImportReady =
+    !editablePreview ||
+    (!skuMatchChecking &&
+      importRows.length > 0 &&
+      stockPreviewMismatchCount === 0);
 
   function reset() {
     setStep("file");
@@ -248,6 +399,41 @@ export function ImportWizard({
     setSaving(false);
     setResult(null);
     setQuantityMode("add");
+    setPackagingUnit("pack");
+    setEditableRows([]);
+    setSkuMatchByValue({});
+    setSkuProductByValue({});
+    setSkuMatchChecking(false);
+  }
+
+  function goToPreview() {
+    if (editablePreview) {
+      setEditableRows(mappedRows.map((row) => ({ ...row })));
+      setSkuMatchByValue({});
+      setSkuProductByValue({});
+    } else {
+      setEditableRows([]);
+    }
+    setStep("preview");
+  }
+
+  function rememberStockProduct(code: string, product: ProductRecord) {
+    const key = code.trim();
+    if (!key) return;
+    setSkuMatchByValue((current) => ({ ...current, [key]: true }));
+    setSkuProductByValue((current) => ({ ...current, [key]: product }));
+  }
+
+  function updateEditableCell(rowIndex: number, fieldKey: string, value: string) {
+    setEditableRows((current) =>
+      current.map((row, index) =>
+        index === rowIndex ? { ...row, [fieldKey]: value } : row
+      )
+    );
+  }
+
+  function removeEditableRow(rowIndex: number) {
+    setEditableRows((current) => current.filter((_, index) => index !== rowIndex));
   }
 
   function handleOpenChange(next: boolean) {
@@ -279,7 +465,8 @@ export function ImportWizard({
   }
 
   async function runImport() {
-    if (!businessId || !requiredReady) return;
+    if (!businessId || !requiredReady || importRows.length === 0) return;
+    if (!stockPreviewImportReady) return;
     setSaving(true);
     setError("");
     setImportProgress("");
@@ -292,12 +479,14 @@ export function ImportWizard({
       errors: [],
     };
     try {
-      for (let start = 0; start < mappedRows.length; start += chunkSize) {
-        const end = Math.min(start + chunkSize, mappedRows.length);
-        setImportProgress(`Importing ${end.toLocaleString()} of ${mappedRows.length.toLocaleString()}…`);
+      for (let start = 0; start < importRows.length; start += chunkSize) {
+        const end = Math.min(start + chunkSize, importRows.length);
+        setImportProgress(
+          `Importing ${end.toLocaleString()} of ${importRows.length.toLocaleString()}…`
+        );
         const summary = await onImport({
           businessId,
-          rows: mappedRows.slice(start, end).map((row, index) => ({
+          rows: importRows.slice(start, end).map((row, index) => ({
             ...row,
             _row: String(start + index + 2),
           })),
@@ -448,7 +637,16 @@ export function ImportWizard({
               </div>
 
               <div className="space-y-3">
-                {fields.map((field) => (
+                {fields.map((field) => {
+                  // Pack mode: hide piece Price/Cost — pack price/cost sit under Packaging.
+                  if (
+                    packagingMapped &&
+                    (field.key === "price" || field.key === "costPrice")
+                  ) {
+                    return null;
+                  }
+
+                  return (
                   <div
                     key={field.key}
                     className="grid gap-2 sm:grid-cols-[140px_1fr] sm:items-start"
@@ -456,7 +654,74 @@ export function ImportWizard({
                     <FieldLabel required={field.required} className="pt-2">
                       {field.label}
                     </FieldLabel>
-                    {field.multi ? (
+                    {field.packaging ? (
+                      <div className="space-y-1.5">
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <EnumSelect
+                            value={packagingUnit}
+                            onValueChange={(value) =>
+                              setPackagingUnit(normalizeProductUnit(value))
+                            }
+                            options={PRODUCT_UNIT_OPTIONS}
+                            placeholder="Pack unit"
+                          />
+                          <EnumSelect
+                            value={(mapping[field.key] || [])[0] || ""}
+                            onValueChange={(value) =>
+                              setMapping((current) => ({
+                                ...current,
+                                [field.key]: value ? [value] : [],
+                              }))
+                            }
+                            options={ignoreOptions}
+                            placeholder="Excel column"
+                          />
+                        </div>
+                        {packagingMapped ? (
+                          <>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <div className="space-y-1">
+                                <p className="text-xs font-medium">Pack price</p>
+                                <EnumSelect
+                                  value={(mapping.price || [])[0] || ""}
+                                  onValueChange={(value) =>
+                                    setMapping((current) => ({
+                                      ...current,
+                                      price: value ? [value] : [],
+                                    }))
+                                  }
+                                  options={ignoreOptions}
+                                  placeholder="Ignore"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <p className="text-xs font-medium">Pack cost</p>
+                                <EnumSelect
+                                  value={(mapping.costPrice || [])[0] || ""}
+                                  onValueChange={(value) =>
+                                    setMapping((current) => ({
+                                      ...current,
+                                      costPrice: value ? [value] : [],
+                                    }))
+                                  }
+                                  options={ignoreOptions}
+                                  placeholder="Ignore"
+                                />
+                              </div>
+                            </div>
+                            <p className="text-muted-foreground text-xs">
+                              Piece price/cost are calculated automatically (pack value ÷ units
+                              in pack). Example: 600 ÷ 100 = 6.
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-muted-foreground text-xs">
+                            Optional. Pack unit + sheet column for how many base units are in
+                            one pack (e.g. Pack + PackUnits).
+                          </p>
+                        )}
+                      </div>
+                    ) : field.multi ? (
                       <MultiColumnPicker
                         columns={sheet.columns}
                         value={mapping[field.key] || []}
@@ -478,7 +743,8 @@ export function ImportWizard({
                       />
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
 
               <div className="overflow-x-auto rounded-lg border">
@@ -511,9 +777,28 @@ export function ImportWizard({
           {step === "preview" ? (
             <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-muted-foreground text-sm">
-                  {mappedRows.length} rows ready
-                </p>
+                <div className="space-y-1">
+                  <p className="text-muted-foreground text-sm">
+                    {editablePreview
+                      ? `${importRows.length} rows ready — edit any cell before importing`
+                      : `${mappedRows.length} rows ready${
+                          mappedRows.length > previewSampleRows.length
+                            ? ` (showing first ${previewSampleRows.length})`
+                            : ""
+                        }`}
+                  </p>
+                  {editablePreview && supportsQuantity ? (
+                    <p className="text-muted-foreground text-xs">
+                      {skuMatchChecking
+                        ? "Checking products…"
+                        : stockPreviewMismatchCount > 0
+                          ? `${stockPreviewMismatchCount} row${
+                              stockPreviewMismatchCount === 1 ? "" : "s"
+                            } need a matching product — fix or remove them to enable Import.`
+                          : "All products matched. Qty uses the Unit column (defaults to first packaging, or base)."}
+                    </p>
+                  ) : null}
+                </div>
                 {supportsQuantity && quantityMapped ? (
                   <div className="flex items-center gap-1 rounded-lg border p-1">
                     {(
@@ -539,38 +824,171 @@ export function ImportWizard({
                   </div>
                 ) : null}
               </div>
-              <div className="overflow-x-auto rounded-lg border">
-                <table className="w-full min-w-[640px] text-left text-xs">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      {fields.map((field) => (
-                        <th key={field.key} className="px-2 py-1.5 font-medium">
-                          {field.label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {previewRows.map((row, index) => (
-                      <tr key={index} className="border-t">
+              {editablePreview ? (
+                <div className="max-h-[min(50vh,420px)] overflow-auto rounded-lg border">
+                  <table className="w-full min-w-[720px] text-left text-xs">
+                    <thead className="bg-muted/50 sticky top-0 z-10">
+                      <tr>
+                        <th className="px-2 py-1.5 font-medium">#</th>
                         {fields.map((field) => (
-                          <td
-                            key={field.key}
-                            className="max-w-[160px] truncate px-2 py-1.5"
-                          >
-                            {row[field.key] || "—"}
-                          </td>
+                          <Fragment key={field.key}>
+                            <th className="px-2 py-1.5 font-medium">
+                              {field.label}
+                              {field.required ? (
+                                <span className="text-destructive"> *</span>
+                              ) : null}
+                            </th>
+                            {field.key === "quantity" ? (
+                              <th className="px-2 py-1.5 font-medium">Unit</th>
+                            ) : null}
+                          </Fragment>
+                        ))}
+                        <th className="px-2 py-1.5 font-medium"> </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importRows.map((row, index) => {
+                        const code = String(row.sku || "").trim();
+                        const matchedProduct = skuProductByValue[code];
+                        const unitOptions = stockImportSellUnitOptions(matchedProduct);
+                        return (
+                          <tr key={index} className="border-t">
+                            <td className="px-2 py-1 tabular-nums text-muted-foreground">
+                              {index + 1}
+                            </td>
+                            {fields.map((field) => (
+                              <Fragment key={field.key}>
+                                <td className="px-1.5 py-1">
+                                  {field.key === "sku" ? (
+                                    <StockImportProductCell
+                                      businessId={businessId}
+                                      value={row[field.key] || ""}
+                                      onChange={(next) =>
+                                        updateEditableCell(index, field.key, next)
+                                      }
+                                      onProductResolved={(product) => {
+                                        const matchValue =
+                                          String(product.sku || "").trim() ||
+                                          String(product.name || "").trim();
+                                        rememberStockProduct(matchValue, product);
+                                        updateEditableCell(
+                                          index,
+                                          "packagingUnit",
+                                          defaultStockImportUnit(product)
+                                        );
+                                      }}
+                                      invalid={
+                                        !skuMatchChecking &&
+                                        (!code || skuMatchByValue[code] === false)
+                                      }
+                                      aria-label={`${field.label} row ${index + 1}`}
+                                    />
+                                  ) : (
+                                    <input
+                                      type="text"
+                                      className="h-7 w-full min-w-[88px] rounded-md border border-border bg-background px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
+                                      value={row[field.key] || ""}
+                                      onChange={(event) =>
+                                        updateEditableCell(
+                                          index,
+                                          field.key,
+                                          event.target.value
+                                        )
+                                      }
+                                      aria-label={`${field.label} row ${index + 1}`}
+                                    />
+                                  )}
+                                </td>
+                                {field.key === "quantity" ? (
+                                  <td className="px-1.5 py-1">
+                                    <select
+                                      className="h-7 min-w-[110px] rounded-md border border-border bg-background px-1.5 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50"
+                                      value={
+                                        row.packagingUnit ||
+                                        defaultStockImportUnit(matchedProduct)
+                                      }
+                                      disabled={!matchedProduct || unitOptions.length === 0}
+                                      onChange={(event) =>
+                                        updateEditableCell(
+                                          index,
+                                          "packagingUnit",
+                                          event.target.value
+                                        )
+                                      }
+                                      aria-label={`Unit row ${index + 1}`}
+                                    >
+                                      {unitOptions.length ? (
+                                        unitOptions.map((option) => (
+                                          <option key={option.unit} value={option.unit}>
+                                            {option.label}
+                                          </option>
+                                        ))
+                                      ) : (
+                                        <option value="">—</option>
+                                      )}
+                                    </select>
+                                  </td>
+                                ) : null}
+                              </Fragment>
+                            ))}
+                            <td className="px-1.5 py-1">
+                              <button
+                                type="button"
+                                className="text-muted-foreground hover:text-destructive text-xs"
+                                onClick={() => removeEditableRow(index)}
+                              >
+                                Remove
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border">
+                  <table className="w-full min-w-[640px] text-left text-xs">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        {fields.map((field) => (
+                          <th key={field.key} className="px-2 py-1.5 font-medium">
+                            {field.label}
+                          </th>
                         ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {previewSampleRows.map((row, index) => (
+                        <tr key={index} className="border-t">
+                          {fields.map((field) => (
+                            <td
+                              key={field.key}
+                              className="max-w-[160px] truncate px-2 py-1.5"
+                            >
+                              {field.packaging
+                                ? [row.packagingUnit, row[field.key]].filter(Boolean).join(" · ") ||
+                                  "—"
+                                : row[field.key] || "—"}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           ) : null}
 
           {step === "done" && result ? (
             <div className="space-y-4 py-2">
+              <p className="text-muted-foreground text-sm">
+                Counts are unique SKUs after import (duplicate SKUs in the sheet are
+                merged). Check the Map step: SKU must be the item code column (e.g.{" "}
+                <span className="font-medium text-foreground">aliasname</span>), not
+                manufacturer <span className="font-medium text-foreground">name</span>.
+              </p>
               <div className="grid grid-cols-3 gap-3">
                 <div className="rounded-xl border p-3 text-center">
                   <p className="text-2xl font-semibold tabular-nums">{result.created}</p>
@@ -640,16 +1058,25 @@ export function ImportWizard({
               <Button
                 type="button"
                 disabled={!requiredReady}
-                onClick={() => setStep("preview")}
+                onClick={goToPreview}
               >
                 Continue
               </Button>
             ) : null}
             {step === "preview" ? (
-              <Button type="button" disabled={saving || !businessId} onClick={() => void runImport()}>
+              <Button
+                type="button"
+                disabled={
+                  saving ||
+                  !businessId ||
+                  importRows.length === 0 ||
+                  !stockPreviewImportReady
+                }
+                onClick={() => void runImport()}
+              >
                 {saving
                   ? importProgress || "Importing..."
-                  : `Import ${mappedRows.length.toLocaleString()}`}
+                  : `Import ${importRows.length.toLocaleString()}`}
               </Button>
             ) : null}
             {step === "done" ? (

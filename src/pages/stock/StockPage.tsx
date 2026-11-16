@@ -1,5 +1,6 @@
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { DynamicEntityFields } from "@/components/entity-fields/DynamicEntityFields";
 import { PageShell } from "@/components/layout/PageShell";
@@ -8,6 +9,7 @@ import {
   CrudDialog,
   DataTableCard,
   FilterSelect,
+  FormField,
   ListFilters,
   ListPagination,
   PageAlerts,
@@ -17,6 +19,9 @@ import {
 import { ImportWizard } from "@/components/import/ImportWizard";
 import { STOCK_IMPORT_FIELDS } from "@/components/import/importFields";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { EnumSelect } from "@/components/shared/EnumSelect";
 import { useBusinessOptions, useBusinessVisibility } from "@/hooks/useBusinessOptions";
 import { resolveListBusinessId, useListSchemaFields } from "@/hooks/useListSchemaFields";
 import { useCategoryOptions } from "@/hooks/useCategoryOptions";
@@ -26,6 +31,11 @@ import { getBusinessDisplayName } from "@/lib/business";
 import { buildEntityPayload, formatCustomListValue } from "@/constants/entityFields";
 import { ALL_FILTER, STATUS_FILTER_OPTIONS, STOCK_LEVEL_FILTER_OPTIONS } from "@/lib/listFilters";
 import { MODULE_PATHS } from "@/lib/modulePaths";
+import {
+  PRODUCT_UNIT_LABELS,
+  normalizeProductUnit,
+} from "@/constants/catalog";
+import { formatStockBreakdown } from "@/lib/stockDisplay";
 import type { EntityFieldDefinition, StockLevel, StockRecord } from "@/types";
 
 const MODULE_PATH = MODULE_PATHS.STOCK;
@@ -40,6 +50,19 @@ function formatQuantity(value: unknown) {
   const amount = Number(value);
   if (Number.isNaN(amount)) return "—";
   return String(amount);
+}
+
+function stockBaseUnit(stock: StockRecord) {
+  if (typeof stock.product === "object" && stock.product?.unit) return stock.product.unit;
+  return stock.unit || "piece";
+}
+
+function formatOnHand(stock: StockRecord) {
+  const packagings =
+    stock.packagings ||
+    (typeof stock.product === "object" && stock.product ? stock.product.packagings : []) ||
+    [];
+  return formatStockBreakdown(Number(stock.quantity) || 0, stockBaseUnit(stock), packagings);
 }
 
 function stockProductName(stock: StockRecord) {
@@ -73,6 +96,7 @@ function StockLevelBadge({ level }: { level: StockLevel }) {
 }
 
 export default function StockPage() {
+  const navigate = useNavigate();
   const { isSuperAdmin, showBusinessColumn, singleAssignedBusiness } = useBusinessVisibility();
   const crud = useCrudPage<StockRecord>();
   const list = useListQuery();
@@ -83,6 +107,9 @@ export default function StockPage() {
   const [schemaFields, setSchemaFields] = useState<EntityFieldDefinition[]>([]);
   const [schemaLoading, setSchemaLoading] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [receiveQty, setReceiveQty] = useState("1");
+  const [receiveUnit, setReceiveUnit] = useState("");
+  const [receiving, setReceiving] = useState(false);
   const { options: businessOptions } = useBusinessOptions(isSuperAdmin ? "all" : "assigned");
   const listBusinessId = resolveListBusinessId(
     list.getFilter("businessId"),
@@ -100,7 +127,7 @@ export default function StockPage() {
       textColumn<StockRecord>("product", "Product", stockProductName, { primary: true }),
       textColumn<StockRecord>("variation", "Variation", stockVariationName),
       textColumn<StockRecord>("sku", "SKU", (row) => row.sku),
-      textColumn<StockRecord>("quantity", "Quantity", (row) => formatQuantity(row.quantity)),
+      textColumn<StockRecord>("quantity", "On hand", (row) => formatOnHand(row)),
       textColumn<StockRecord>("minStock", "Min stock", (row) => formatQuantity(row.minStock)),
       textColumn<StockRecord>(
         "business",
@@ -170,6 +197,44 @@ export default function StockPage() {
 
   function populateForm(stock: StockRecord) {
     setFormValues(stockFormValues(stock));
+    const base = normalizeProductUnit(stockBaseUnit(stock));
+    const packagings =
+      stock.packagings ||
+      (typeof stock.product === "object" && stock.product
+        ? stock.product.packagings
+        : []) ||
+      [];
+    const firstPack = packagings.find((row) => {
+      const unit = normalizeProductUnit(row.unit || "");
+      return Boolean(unit) && unit !== base && Number(row.factorToBase) > 0;
+    });
+    setReceiveQty("1");
+    setReceiveUnit(firstPack?.unit ? normalizeProductUnit(firstPack.unit) : base);
+  }
+
+  async function handleReceive() {
+    if (!crud.editing) return;
+    const qty = Number(receiveQty);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      crud.setError("Enter a receive quantity greater than zero.");
+      return;
+    }
+    setReceiving(true);
+    try {
+      const updated = await api.receiveStock(crud.editing._id, {
+        quantity: qty,
+        packagingUnit: receiveUnit,
+      });
+      crud.setEditing(updated);
+      setFormValues(stockFormValues(updated));
+      setReceiveQty("1");
+      crud.setMessage("Stock received.");
+      await loadStock();
+    } catch (error) {
+      crud.setError(error instanceof Error ? error.message : "Unable to receive stock.");
+    } finally {
+      setReceiving(false);
+    }
   }
 
   function updateField(key: string, value: unknown) {
@@ -220,14 +285,23 @@ export default function StockPage() {
             list.activeCount > 0 ? "No stock matches your filters." : "No products to track yet."
           }
           headerActions={
-            <PermissionButton
-              modulePath={MODULE_PATH}
-              action="create"
-              variant="outline"
-              onClick={() => setImportOpen(true)}
-            >
-              Import
-            </PermissionButton>
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => navigate(MODULE_PATHS.CATALOG_RAW_MATERIALS)}
+              >
+                Raw materials
+              </Button>
+              <PermissionButton
+                modulePath={MODULE_PATH}
+                action="create"
+                variant="outline"
+                onClick={() => setImportOpen(true)}
+              >
+                Import
+              </PermissionButton>
+            </>
           }
           filters={
             <ListFilters
@@ -291,6 +365,7 @@ export default function StockPage() {
           title="Import stock"
           fields={STOCK_IMPORT_FIELDS}
           businessScope={isSuperAdmin ? "all" : "assigned"}
+          editablePreview
           onImport={(payload) => api.importStock(payload)}
           onFinished={() => {
             void loadStock();
@@ -315,7 +390,56 @@ export default function StockPage() {
                 <p className="text-muted-foreground text-sm">
                   {[crud.editing.variation?.name, crud.editing.sku].filter(Boolean).join(" · ") || "—"}
                 </p>
+                <p className="text-muted-foreground mt-1 text-sm">
+                  On hand: {formatOnHand(crud.editing)}
+                </p>
               </div>
+
+              <div className="space-y-3 sm:col-span-2">
+                <p className="text-sm font-medium">Receive stock</p>
+                <p className="text-muted-foreground text-xs">
+                  Enter packs/boxes received — quantity is converted into the base unit automatically.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
+                  <FormField
+                    id="stock-receive-qty"
+                    label="Quantity"
+                    type="number"
+                    min={0.000001}
+                    step="any"
+                    value={receiveQty}
+                    onChange={(event) => setReceiveQty(event.target.value)}
+                  />
+                  <EnumSelect
+                    id="stock-receive-unit"
+                    label="Unit"
+                    value={receiveUnit || stockBaseUnit(crud.editing)}
+                    onValueChange={setReceiveUnit}
+                    options={(
+                      crud.editing.sellUnits?.length
+                        ? crud.editing.sellUnits
+                        : [{ unit: stockBaseUnit(crud.editing), factorToBase: 1 }]
+                    ).map((row) => ({
+                      value: row.unit,
+                      label:
+                        PRODUCT_UNIT_LABELS[normalizeProductUnit(row.unit)] ||
+                        row.unit,
+                    }))}
+                  />
+                  <div className="flex items-end">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={receiving}
+                      onClick={() => void handleReceive()}
+                    >
+                      {receiving ? "Receiving…" : "Receive"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <Separator className="sm:col-span-2" />
 
               {schemaLoading ? (
                 <p className="text-muted-foreground text-sm sm:col-span-2">Loading fields...</p>

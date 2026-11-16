@@ -40,6 +40,7 @@ export default function SystemUsersPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
+  const [staffCode, setStaffCode] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [roleId, setRoleId] = useState("");
@@ -49,6 +50,7 @@ export default function SystemUsersPage() {
     () => [
       textColumn<UserRecord>("name", "Name", (user) => user.name, { primary: true }),
       textColumn<UserRecord>("username", "Username", (user) => user.username),
+      textColumn<UserRecord>("staffCode", "Staff code", (user) => user.staffCode || "—"),
       textColumn<UserRecord>("email", "Email", (user) => user.email),
       textColumn<UserRecord>("role", "Role", (user) =>
         user.isSuperAdmin ? "Super Admin" : user.role?.name || "No role"
@@ -80,6 +82,7 @@ export default function SystemUsersPage() {
   function resetForm() {
     setName("");
     setUsername("");
+    setStaffCode("");
     setEmail("");
     setPassword("");
     setRoleId("");
@@ -89,6 +92,7 @@ export default function SystemUsersPage() {
   function populateForm(user: UserRecord) {
     setName(user.name);
     setUsername(user.username);
+    setStaffCode(user.staffCode || "");
     setEmail(user.email);
     setPassword("");
     setRoleId(user.role?._id || "");
@@ -103,6 +107,7 @@ export default function SystemUsersPage() {
       email,
       roleId: roleId || null,
       businessIds: selectedBusinessIds,
+      staffCode: staffCode.trim(),
     };
 
     if (!crud.editing) {
@@ -232,6 +237,20 @@ export default function SystemUsersPage() {
               required
             />
           )}
+
+          <FormField
+            id="user-staff-code"
+            label="Staff code"
+            value={staffCode}
+            onChange={(e) => setStaffCode(e.target.value.toUpperCase())}
+            placeholder={crud.editing ? undefined : "Leave blank to auto-assign"}
+            autoCapitalize="characters"
+            help={
+              crud.editing
+                ? "Must be unique. Used when a branch asks for a staff code on order actions."
+                : "Optional. Leave blank to auto-assign (e.g. KASH42). Must be unique if you set one."
+            }
+          />
 
           <FormField
             id="user-email"

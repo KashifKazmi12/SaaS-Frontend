@@ -24,6 +24,8 @@ interface OrderCreateSuccessDialogProps {
   order: OrderRecord | null;
   checkoutUrl?: string | null;
   businessName?: string;
+  /** Fallback when order.placedBy is missing (e.g. older orders). */
+  sessionUserName?: string;
   onAddNew: () => void;
   /** Omit or set false on the detail page — you're already viewing the order. */
   showViewDetail?: boolean;
@@ -45,11 +47,19 @@ function customerNameFromOrder(order: OrderRecord) {
   return "Customer";
 }
 
+function placedByNameFromOrder(order: OrderRecord, fallback = "") {
+  if (order.placedBy && typeof order.placedBy === "object" && order.placedBy.name) {
+    return order.placedBy.name;
+  }
+  return fallback;
+}
+
 export function OrderCreateSuccessDialog({
   open,
   order,
   checkoutUrl,
   businessName,
+  sessionUserName = "",
   onAddNew,
   showViewDetail = true,
   onViewDetail,
@@ -71,12 +81,58 @@ export function OrderCreateSuccessDialog({
     setTab(hasCard ? "card" : "summary");
   }, [open, hasCard, order?._id]);
 
+  useEffect(() => {
+    if (!open || !order) return;
+
+    const createdOrder = order;
+    const currency = currencyFromGroup(createdOrder.businessGroup);
+    const customerName = customerNameFromOrder(createdOrder);
+    const payLabel = paymentMethodLabel(createdOrder.paymentMethod);
+    const placedByName = placedByNameFromOrder(createdOrder, sessionUserName);
+
+    function printReceipt() {
+      void printOrderReceipt({
+        orderNumber: createdOrder.orderNumber,
+        customerName,
+        paymentMethodLabel: payLabel,
+        currency,
+        items: createdOrder.items.map((item) => ({
+          name: item.name,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          lineTotal: item.lineTotal,
+        })),
+        subtotal: createdOrder.subtotal,
+        discountAmount: createdOrder.discountAmount || 0,
+        discountType: createdOrder.discountType,
+        discountValue: createdOrder.discountValue,
+        total: createdOrder.total,
+        createdAt: createdOrder.createdAt,
+        businessName,
+        placedByName,
+        desktopReferenceId: createdOrder.desktopReferenceId || null,
+        paymentUrl: hasCard ? checkoutUrl : null,
+      });
+    }
+
+    function onPrintShortcut(event: globalThis.KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "p") return;
+      event.preventDefault();
+      event.stopPropagation();
+      printReceipt();
+    }
+
+    document.addEventListener("keydown", onPrintShortcut, true);
+    return () => document.removeEventListener("keydown", onPrintShortcut, true);
+  }, [open, order, checkoutUrl, businessName, hasCard, sessionUserName]);
+
   if (!order) return null;
 
   const createdOrder = order;
   const currency = currencyFromGroup(createdOrder.businessGroup);
   const customerName = customerNameFromOrder(createdOrder);
   const payLabel = paymentMethodLabel(createdOrder.paymentMethod);
+  const placedByName = placedByNameFromOrder(createdOrder, sessionUserName);
 
   function handlePrintReceipt() {
     void printOrderReceipt({
@@ -97,6 +153,7 @@ export function OrderCreateSuccessDialog({
       total: createdOrder.total,
       createdAt: createdOrder.createdAt,
       businessName,
+      placedByName,
       desktopReferenceId: createdOrder.desktopReferenceId || null,
       paymentUrl: hasCard ? checkoutUrl : null,
     });
@@ -183,6 +240,12 @@ export function OrderCreateSuccessDialog({
               <span className="text-muted-foreground">Payment</span>
               <span className="font-medium text-right">{payLabel}</span>
             </div>
+            {placedByName ? (
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Placed by</span>
+                <span className="font-medium text-right">{placedByName}</span>
+              </div>
+            ) : null}
             {(order.discountAmount || 0) > 0 ? (
               <div className="flex justify-between gap-3">
                 <span className="text-muted-foreground">

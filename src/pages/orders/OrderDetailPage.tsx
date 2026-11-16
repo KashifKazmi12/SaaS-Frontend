@@ -1,10 +1,11 @@
 import type { FormEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ImageIcon, Receipt } from "lucide-react";
+import { ArrowLeft, History, ImageIcon, Receipt } from "lucide-react";
 import { api } from "@/lib/api";
 import { DynamicEntityFields } from "@/components/entity-fields/DynamicEntityFields";
 import { OrderCreateSuccessDialog } from "@/components/orders/OrderCreateSuccessDialog";
+import { OrderStaffCodeField } from "@/components/orders/OrderStaffCodeField";
 import { StripePaymentLinkPanel } from "@/components/orders/StripePaymentLinkPanel";
 import { PageShell } from "@/components/layout/PageShell";
 import { RequirePermission } from "@/components/layout/RouteGuards";
@@ -14,9 +15,20 @@ import {
   PermissionButton,
   useConfirm,
 } from "@/components/shared";
+import {
+  staffCodePayload,
+  useOrderStaffCodeRequired,
+  validateOrderStaffCode,
+} from "@/hooks/useOrderStaffGate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useAuth } from "@/context/AuthContext";
 import { getBusinessDisplayName } from "@/lib/business";
 import {
@@ -39,6 +51,7 @@ import { resolveMediaUrl } from "@/lib/media";
 import { MODULE_PATHS } from "@/lib/modulePaths";
 import { currencyFromGroup, formatMoney } from "@/lib/money";
 import type {
+  ActivityLogRecord,
   EntityFieldDefinition,
   OrderPaymentMethod,
   OrderPaymentStatus,
@@ -56,6 +69,23 @@ function formatDateTime(value?: string) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
+}
+
+function orderHistoryActionLabel(action: string, summary?: string) {
+  if (action === "order.create") return "Created";
+  if (action === "order.update") {
+    return summary?.includes("from desktop") ? "Updated (desktop)" : "Updated";
+  }
+  if (action === "order.refund_wallet") return "Refund to wallet";
+  if (action === "order.refund_stripe") return "Refund via Stripe";
+  if (action === "order.remove") return "Removed";
+  return action || "—";
+}
+
+function historyActorName(row: ActivityLogRecord) {
+  if (row.actorName) return row.actorName;
+  if (row.actor && typeof row.actor === "object" && row.actor.name) return row.actor.name;
+  return "System";
 }
 
 function orderStatusLabel(status: OrderStatus) {
@@ -141,13 +171,17 @@ export default function OrderDetailPage() {
   const { orderId = "" } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const { confirm } = useConfirm();
+  const { isStaffCodeRequired, rememberStaffCodeRequired } = useOrderStaffCodeRequired();
   const canUpdate = can(MODULE_PATH, "update");
 
   const [order, setOrder] = useState<OrderRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [staffCodeRequired, setStaffCodeRequired] = useState(false);
+  const [staffCode, setStaffCode] = useState("");
+  const [staffCodeError, setStaffCodeError] = useState("");
   const [refunding, setRefunding] = useState(false);
   const [refundingStripe, setRefundingStripe] = useState(false);
   const [error, setError] = useState("");
@@ -155,6 +189,9 @@ export default function OrderDetailPage() {
   const [checkoutUrl, setCheckoutUrl] = useState("");
   const [paymentLinkLoading, setPaymentLinkLoading] = useState(false);
   const [receiptOpen, setReceiptOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyItems, setHistoryItems] = useState<ActivityLogRecord[]>([]);
   const [status, setStatus] = useState<OrderStatus>("pending");
   const [paymentStatus, setPaymentStatus] = useState<OrderPaymentStatus>("unpaid");
   const [paymentMethod, setPaymentMethod] = useState<OrderPaymentMethod>("unpaid");
@@ -237,6 +274,13 @@ export default function OrderDetailPage() {
 
     let cancelled = false;
     setSchemaLoading(true);
+    setStaffCode("");
+    setStaffCodeError("");
+    void isStaffCodeRequired(businessId).then((required) => {
+      if (cancelled) return;
+      setStaffCodeRequired(required);
+      rememberStaffCodeRequired(businessId, required);
+    });
     api
       .getOrderSchema({ businessId })
       .then((data) => {
@@ -258,7 +302,7 @@ export default function OrderDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [order?._id]);
+  }, [order?._id, isStaffCodeRequired, rememberStaffCodeRequired]);
 
   function updateFormField(key: string, value: unknown) {
     if (!canUpdate || order?.status === "cancelled" || order?.status === "completed") return;
@@ -301,6 +345,19 @@ export default function OrderDetailPage() {
       return;
     }
 
+    const businessId = orderBusinessId(order);
+    let resolvedStaffCode = "";
+    if (staffCodeRequired) {
+      setStaffCodeError("");
+      try {
+        const staff = await validateOrderStaffCode(businessId, staffCode);
+        resolvedStaffCode = staff.staffCode;
+      } catch (err) {
+        setStaffCodeError(err instanceof Error ? err.message : "Invalid staff code.");
+        return;
+      }
+    }
+
     if (
       !stripeLocked &&
       status === "completed" &&
@@ -308,14 +365,14 @@ export default function OrderDetailPage() {
       order.total > 0 &&
       order.status !== "completed"
     ) {
-      const confirmed = await confirm({
+      const result = await confirm({
         title: "Confirm payment before completing?",
         description:
           "Please confirm this order’s remaining payment is paid, then it will be marked completed.",
         confirmLabel: "Mark paid & completed",
         cancelLabel: "Go back",
       });
-      if (!confirmed) return;
+      if (!result.confirmed) return;
       nextPaymentStatus = "paid";
       if (nextPaymentMethod === "unpaid") {
         nextPaymentMethod = "cash";
@@ -330,7 +387,10 @@ export default function OrderDetailPage() {
     try {
       let updated: OrderRecord;
       if (order.status === "cancelled") {
-        updated = await api.updateOrder(order._id, { paymentStatus: nextPaymentStatus });
+        updated = await api.updateOrder(order._id, {
+          paymentStatus: nextPaymentStatus,
+          ...staffCodePayload(resolvedStaffCode),
+        });
       } else {
         const entityPayload = buildEntityPayload(
           "order",
@@ -346,6 +406,7 @@ export default function OrderDetailPage() {
                 paymentMethod: nextPaymentMethod,
               }),
           ...entityPayload,
+          ...staffCodePayload(resolvedStaffCode),
         });
       }
       applyOrder(updated);
@@ -369,18 +430,23 @@ export default function OrderDetailPage() {
   async function handleRefundToWallet() {
     if (!order || !canUpdate) return;
     const amount = formatMoney(order.total, currencyFromGroup(order.businessGroup));
-    const confirmed = await confirm({
+    const businessId = orderBusinessId(order);
+    const result = await confirm({
       title: "Refund to customer wallet?",
       description: `This credits ${amount} to the customer’s store wallet and marks the order as refunded. Use this when the customer wants store credit instead of cash or a bank transfer.`,
       confirmLabel: "Refund to customer wallet",
       cancelLabel: "Cancel",
+      staffCodeBusinessId: staffCodeRequired ? businessId : undefined,
     });
-    if (!confirmed) return;
+    if (!result.confirmed) return;
     setRefunding(true);
     setError("");
     setMessage("");
     try {
-      const updated = await api.refundOrderToWallet(order._id);
+      const updated = await api.refundOrderToWallet(
+        order._id,
+        staffCodePayload(result.staffCode)
+      );
       applyOrder(updated);
       setMessage(
         `Refunded ${formatMoney(
@@ -399,18 +465,23 @@ export default function OrderDetailPage() {
   async function handleMarkRefundedOutside() {
     if (!order || !canUpdate) return;
     const amount = formatMoney(order.total, currencyFromGroup(order.businessGroup));
-    const confirmed = await confirm({
+    const businessId = orderBusinessId(order);
+    const result = await confirm({
       title: "Mark as refunded?",
       description: `Confirm you already returned ${amount} to the customer by cash, bank transfer, or another payout. The order will be marked refunded. No money will be added to their wallet.`,
       confirmLabel: "Mark as refunded",
       cancelLabel: "Cancel",
+      staffCodeBusinessId: staffCodeRequired ? businessId : undefined,
     });
-    if (!confirmed) return;
+    if (!result.confirmed) return;
     setRefunding(true);
     setError("");
     setMessage("");
     try {
-      const updated = await api.updateOrder(order._id, { paymentStatus: "refunded" });
+      const updated = await api.updateOrder(order._id, {
+        paymentStatus: "refunded",
+        ...staffCodePayload(result.staffCode),
+      });
       applyOrder(updated);
       setMessage("Marked refunded. No wallet credit added.");
     } catch (err) {
@@ -420,21 +491,42 @@ export default function OrderDetailPage() {
     }
   }
 
+  async function openHistory() {
+    if (!order) return;
+    setHistoryOpen(true);
+    setHistoryLoading(true);
+    setError("");
+    try {
+      const data = await api.getOrderHistory(order._id, { page: 1, limit: 100 });
+      setHistoryItems(data.items || []);
+    } catch (err) {
+      setHistoryItems([]);
+      setError(err instanceof Error ? err.message : "Unable to load order history.");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
   async function handleRefundStripe() {
     if (!order || !canUpdate) return;
     const amount = formatMoney(order.total, currencyFromGroup(order.businessGroup));
-    const confirmed = await confirm({
+    const businessId = orderBusinessId(order);
+    const result = await confirm({
       title: "Refund via Stripe?",
       description: `This refunds ${amount} back to the customer’s card through Stripe and marks the order as refunded.`,
       confirmLabel: "Refund via Stripe",
       cancelLabel: "Cancel",
+      staffCodeBusinessId: staffCodeRequired ? businessId : undefined,
     });
-    if (!confirmed) return;
+    if (!result.confirmed) return;
     setRefundingStripe(true);
     setError("");
     setMessage("");
     try {
-      const updated = await api.refundOrderViaStripe(order._id);
+      const updated = await api.refundOrderViaStripe(
+        order._id,
+        staffCodePayload(result.staffCode)
+      );
       applyOrder(updated);
       setMessage(
         `Refunded ${formatMoney(updated.total, currencyFromGroup(updated.businessGroup))} via Stripe.`
@@ -501,10 +593,16 @@ export default function OrderDetailPage() {
         action={
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
             {order ? (
-              <Button type="button" variant="outline" onClick={() => setReceiptOpen(true)}>
-                <Receipt className="size-4" />
-                View receipt
-              </Button>
+              <>
+                <Button type="button" variant="outline" onClick={() => void openHistory()}>
+                  <History className="size-4" />
+                  View history
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setReceiptOpen(true)}>
+                  <Receipt className="size-4" />
+                  View receipt
+                </Button>
+              </>
             ) : null}
             <Button type="button" variant="outline" onClick={() => navigate(MODULE_PATH)}>
               <ArrowLeft className="size-4" />
@@ -844,15 +942,33 @@ export default function OrderDetailPage() {
                 {canEditOrder ||
                 (canEditPayment &&
                   (order.status === "cancelled" || order.status === "completed")) ? (
-                  <PermissionButton
-                    modulePath={MODULE_PATH}
-                    action="update"
-                    type="submit"
-                    className="w-full"
-                    disabled={saving || schemaLoading}
-                  >
-                    {saving ? "Saving..." : "Save order"}
-                  </PermissionButton>
+                  <div className="space-y-3">
+                    {staffCodeRequired ? (
+                      <OrderStaffCodeField
+                        id="order-detail-staff-code"
+                        value={staffCode}
+                        onChange={(value) => {
+                          setStaffCode(value);
+                          setStaffCodeError("");
+                        }}
+                        error={staffCodeError}
+                        disabled={saving}
+                      />
+                    ) : null}
+                    <PermissionButton
+                      modulePath={MODULE_PATH}
+                      action="update"
+                      type="submit"
+                      className="w-full"
+                      disabled={
+                        saving ||
+                        schemaLoading ||
+                        (staffCodeRequired && !staffCode.trim())
+                      }
+                    >
+                      {saving ? "Saving..." : "Save order"}
+                    </PermissionButton>
+                  </div>
                 ) : null}
               </div>
             </div>
@@ -932,6 +1048,7 @@ export default function OrderDetailPage() {
           order={order}
           checkoutUrl={checkoutUrl || null}
           businessName={orderBranchName}
+          sessionUserName={user?.name || ""}
           variant="receipt"
           showViewDetail={false}
           onAddNew={() => {
@@ -940,6 +1057,51 @@ export default function OrderDetailPage() {
           }}
           onOpenChange={setReceiptOpen}
         />
+
+        <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+          <DialogContent className="max-h-[85vh] overflow-hidden sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>
+                Order history{order ? ` · ${order.orderNumber}` : ""}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="max-h-[min(60vh,480px)] overflow-y-auto">
+              {historyLoading ? (
+                <p className="text-muted-foreground text-sm">Loading history…</p>
+              ) : historyItems.length === 0 ? (
+                <p className="text-muted-foreground text-sm">
+                  No history yet for this order. New create, update, and refund actions will
+                  appear here with the user who performed them.
+                </p>
+              ) : (
+                <ul className="space-y-3">
+                  {historyItems.map((row) => (
+                    <li
+                      key={row._id}
+                      className="rounded-lg border px-3 py-2.5 text-sm"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0 space-y-1">
+                          <p className="font-medium">
+                            {orderHistoryActionLabel(row.action, row.summary)}
+                          </p>
+                          <p className="text-muted-foreground break-words">{row.summary}</p>
+                        </div>
+                        <Badge variant="secondary" className="shrink-0">
+                          {historyActorName(row)}
+                        </Badge>
+                      </div>
+                      <p className="text-muted-foreground mt-2 text-xs">
+                        {formatDateTime(row.createdAt)}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+
       </PageShell>
     </RequirePermission>
   );

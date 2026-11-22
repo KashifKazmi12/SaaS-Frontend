@@ -1,0 +1,288 @@
+import type { FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { api } from "@/lib/api";
+import { BusinessMultiSelect } from "@/components/business";
+import { PageShell } from "@/components/layout/PageShell";
+import { RequirePermission } from "@/components/layout/RouteGuards";
+import { RoleSelect } from "@/components/role";
+import {
+  CrudDialog,
+  DataTableCard,
+  FilterSelect,
+  FormField,
+  ListFilters,
+  ListPagination,
+  PageAlerts,
+  statusColumn,
+  textColumn,
+} from "@/components/shared";
+import { useCrudPage } from "@/hooks/useCrudPage";
+import { useListQuery } from "@/hooks/useListQuery";
+import { useRoleOptions } from "@/hooks/useRoleOptions";
+import { formatAssignedBusinesses } from "@/lib/business";
+import { ALL_FILTER, STATUS_FILTER_OPTIONS } from "@/lib/listFilters";
+import { MODULE_PATHS } from "@/lib/modulePaths";
+import type { UserRecord } from "@/types";
+
+const MODULE_PATH = MODULE_PATHS.SETTINGS_USERS;
+
+function formatBusinesses(user: UserRecord) {
+  if (user.isSuperAdmin) return "—";
+  return formatAssignedBusinesses(user.businesses);
+}
+
+export default function SystemUsersPage() {
+  const crud = useCrudPage<UserRecord>();
+  const list = useListQuery();
+  const { options: roleOptions } = useRoleOptions();
+  const [users, setUsers] = useState<UserRecord[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
+  const [staffCode, setStaffCode] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [roleId, setRoleId] = useState("");
+  const [selectedBusinessIds, setSelectedBusinessIds] = useState<string[]>([]);
+
+  const columns = useMemo(
+    () => [
+      textColumn<UserRecord>("name", "Name", (user) => user.name, { primary: true }),
+      textColumn<UserRecord>("username", "Username", (user) => user.username),
+      textColumn<UserRecord>("staffCode", "Staff code", (user) => user.staffCode || "—"),
+      textColumn<UserRecord>("email", "Email", (user) => user.email),
+      textColumn<UserRecord>("role", "Role", (user) =>
+        user.isSuperAdmin ? "Super Admin" : user.role?.name || "No role"
+      ),
+      textColumn<UserRecord>("businesses", "Businesses", formatBusinesses, {
+        cellClassName: "max-w-xs truncate",
+      }),
+      statusColumn<UserRecord>(),
+    ],
+    []
+  );
+
+  async function loadUsers() {
+    await crud.runLoad(async () => {
+      const data = await api.getUsers(list.params);
+      setUsers(data.items);
+      setTotal(data.total);
+      setTotalPages(data.totalPages);
+      if (data.items.length === 0 && data.total > 0 && list.page > 1) {
+        list.setPage(Math.max(1, data.totalPages));
+      }
+    }, "Unable to load users.");
+  }
+
+  useEffect(() => {
+    loadUsers();
+  }, [list.params]);
+
+  function resetForm() {
+    setName("");
+    setUsername("");
+    setStaffCode("");
+    setEmail("");
+    setPassword("");
+    setRoleId("");
+    setSelectedBusinessIds([]);
+  }
+
+  function populateForm(user: UserRecord) {
+    setName(user.name);
+    setUsername(user.username);
+    setStaffCode(user.staffCode || "");
+    setEmail(user.email);
+    setPassword("");
+    setRoleId(user.role?._id || "");
+    setSelectedBusinessIds(user.businesses?.map((item) => item._id) || []);
+  }
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+
+    const payload: Record<string, unknown> = {
+      name,
+      email,
+      roleId: roleId || null,
+      businessIds: selectedBusinessIds,
+      staffCode: staffCode.trim(),
+    };
+
+    if (!crud.editing) {
+      payload.username = username;
+      payload.password = password;
+    } else if (password) {
+      payload.password = password;
+    }
+
+    await crud.runMutation(
+      async () => {
+        if (crud.editing) {
+          await api.updateUser(crud.editing._id, payload);
+        } else {
+          await api.createUser(payload);
+        }
+      },
+      {
+        successMessage: crud.editing ? "User updated." : "User created.",
+        reload: loadUsers,
+        fallbackError: "Unable to save user.",
+      }
+    );
+  }
+
+  async function handleDelete(user: UserRecord) {
+    await crud.runDelete(
+      user.name,
+      async () => {
+        await api.deleteUser(user._id);
+      },
+      {
+        successMessage: "User removed.",
+        reload: loadUsers,
+        fallbackError: "Unable to remove user.",
+        canDelete: () => !user.isSuperAdmin,
+      }
+    );
+  }
+
+  return (
+    <RequirePermission path={MODULE_PATH} action="view">
+      <PageShell description="Add people to the system, assign a role, and choose which businesses they can access.">
+        <PageAlerts error={crud.error} message={crud.message} />
+
+        <DataTableCard
+          title="All users"
+          modulePath={MODULE_PATH}
+          columns={columns}
+          data={users}
+          getRowId={(user) => user._id}
+          rowActions={{
+            modulePath: MODULE_PATH,
+            onEdit: (user) => crud.startEdit(user, populateForm),
+            onDelete: handleDelete,
+            hideDelete: (user) => user.isSuperAdmin,
+          }}
+          loading={crud.loading}
+          loadingMessage="Loading users..."
+          empty={!crud.loading && users.length === 0}
+          emptyMessage={list.activeCount > 0 ? "No users match your filters." : "No users yet."}
+          filters={
+            <ListFilters
+              search={list.searchInput}
+              onSearchChange={list.setSearchInput}
+              searchPlaceholder="Search name, username, or email..."
+              activeCount={list.activeCount}
+              onClear={list.clearFilters}
+            >
+              <FilterSelect
+                value={list.getFilter("roleId")}
+                onValueChange={(value) => list.setFilter("roleId", value)}
+                options={[
+                  { value: ALL_FILTER, label: "All roles" },
+                  { value: "superadmin", label: "Super Admin" },
+                  ...roleOptions.map((option) => ({
+                    value: option.id,
+                    label: option.name,
+                  })),
+                ]}
+              />
+              <FilterSelect
+                value={list.getFilter("status")}
+                onValueChange={(value) => list.setFilter("status", value)}
+                options={STATUS_FILTER_OPTIONS}
+              />
+            </ListFilters>
+          }
+          pagination={
+            <ListPagination
+              page={list.page}
+              limit={list.limit}
+              total={total}
+              totalPages={totalPages}
+              onPageChange={list.setPage}
+              onLimitChange={list.setLimit}
+            />
+          }
+          createLabel="Add user"
+          onCreate={() => crud.startCreate(resetForm)}
+        />
+
+        <CrudDialog
+          open={crud.dialogOpen}
+          onOpenChange={crud.setDialogOpen}
+          editing={Boolean(crud.editing)}
+          createTitle="Add user"
+          editTitle="Edit user"
+          createSubmitLabel="Create user"
+          onSubmit={handleSubmit}
+          className="max-h-[90vh] overflow-y-auto sm:max-w-lg"
+        >
+          <FormField
+            id="user-name"
+            label="Full name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
+
+          {!crud.editing && (
+            <FormField
+              id="user-username"
+              label="Username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+            />
+          )}
+
+          <FormField
+            id="user-staff-code"
+            label="Staff code"
+            value={staffCode}
+            onChange={(e) => setStaffCode(e.target.value.toUpperCase())}
+            placeholder={crud.editing ? undefined : "Leave blank to auto-assign"}
+            autoCapitalize="characters"
+            help={
+              crud.editing
+                ? "Must be unique. Used when a branch asks for a staff code on order actions."
+                : "Optional. Leave blank to auto-assign (e.g. KASH42). Must be unique if you set one."
+            }
+          />
+
+          <FormField
+            id="user-email"
+            label="Email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+
+          <FormField
+            id="user-password"
+            label={crud.editing ? "New password (optional)" : "Password"}
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required={!crud.editing}
+          />
+
+          {!crud.editing?.isSuperAdmin && (
+            <RoleSelect value={roleId} onValueChange={setRoleId} />
+          )}
+
+          {!crud.editing?.isSuperAdmin && (
+            <BusinessMultiSelect
+              value={selectedBusinessIds}
+              onValueChange={setSelectedBusinessIds}
+              scope="all"
+              hint="Select one or more businesses this user can access."
+            />
+          )}
+        </CrudDialog>
+      </PageShell>
+    </RequirePermission>
+  );
+}

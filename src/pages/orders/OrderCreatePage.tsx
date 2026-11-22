@@ -1,7 +1,7 @@
 import type { FormEvent, KeyboardEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, ImageIcon, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { BusinessGroupSelect, BusinessSelect } from "@/components/business";
 import { DynamicEntityFields } from "@/components/entity-fields/DynamicEntityFields";
@@ -39,8 +39,6 @@ import {
   DEFAULT_PORTAL_PAYMENT_METHODS,
   type CheckoutPaymentMethod,
 } from "@/constants/commerce";
-import { resolveMediaUrl } from "@/lib/media";
-import { MediaImage } from "@/components/shared/MediaImage";
 import { MODULE_PATHS } from "@/lib/modulePaths";
 import { formatMoney } from "@/lib/money";
 import { formatStockBreakdown } from "@/lib/stockDisplay";
@@ -335,6 +333,19 @@ export default function OrderCreatePage() {
     );
   }
 
+  function focusAndRevealItemProduct(itemKey: string) {
+    // Wait for the new row to paint, then scroll + focus so Enter past the fold still shows it.
+    // Use center + instant scroll so the product dropdown has room (smooth + edge = clipped list).
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = document.getElementById(`product-${itemKey}`);
+        if (!el) return;
+        el.scrollIntoView({ block: "center", inline: "nearest", behavior: "auto" });
+        el.focus({ preventScroll: true });
+      });
+    });
+  }
+
   function insertItemAfter(afterKey: string) {
     const draft = newDraftItem();
     setItems((current) => {
@@ -344,9 +355,7 @@ export default function OrderCreatePage() {
       next.splice(index + 1, 0, draft);
       return next;
     });
-    window.setTimeout(() => {
-      document.getElementById(`product-${draft.key}`)?.focus();
-    }, 0);
+    focusAndRevealItemProduct(draft.key);
   }
 
   function handleItemEnter(afterKey: string) {
@@ -551,7 +560,7 @@ export default function OrderCreatePage() {
         <PageAlerts error={error} message={message} />
 
         <form ref={formRef} onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(300px,1fr)] lg:items-start">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(260px,0.9fr)] lg:items-start">
             <div className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <BusinessGroupSelect
@@ -599,6 +608,7 @@ export default function OrderCreatePage() {
                       onClick={() => {
                         const draft = newDraftItem();
                         setItems((current) => [...current, draft]);
+                        focusAndRevealItemProduct(draft.key);
                       }}
                     >
                       <Plus className="size-4" />
@@ -614,9 +624,6 @@ export default function OrderCreatePage() {
                   ) : (
                     items.map((item) => {
                       const product = productCache[item.productId];
-                      const imageSrc = product?.imagePath
-                        ? resolveMediaUrl(product.imagePath)
-                        : "";
                       const hasVariations = Boolean(product?.hasVariations);
                       const stockLabel = stockLeftLabel(product, item.variationId);
                       return (
@@ -624,22 +631,11 @@ export default function OrderCreatePage() {
                           key={item.key}
                           className={
                             hasVariations
-                              ? "grid gap-3 rounded-xl border p-3 sm:grid-cols-[64px_1fr_1fr_90px_110px_auto]"
-                              : "grid gap-3 rounded-xl border p-3 sm:grid-cols-[64px_1fr_90px_110px_auto]"
+                              ? "grid gap-3 rounded-xl border p-3 sm:grid-cols-[1fr_1fr_90px_110px_auto]"
+                              : "grid gap-3 rounded-xl border p-3 sm:grid-cols-[1fr_90px_110px_auto]"
                           }
                           onKeyDown={(event) => handleItemRowKeyDown(event, item.key)}
                         >
-                          <div className="bg-muted flex size-16 items-center justify-center overflow-hidden rounded-lg border">
-                            {imageSrc ? (
-                              <MediaImage
-                                src={imageSrc}
-                                alt=""
-                                className="size-full object-cover"
-                              />
-                            ) : (
-                              <ImageIcon className="text-muted-foreground size-4" />
-                            )}
-                          </div>
                           <div className="min-w-0">
                             <OrderProductSelect
                               id={`product-${item.key}`}
@@ -746,30 +742,36 @@ export default function OrderCreatePage() {
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader className="border-b">
-                  <CardTitle>Order details</CardTitle>
-                </CardHeader>
-                <CardContent className="grid gap-4 pt-4 sm:grid-cols-2">
-                  <FormField
-                    id="order-customer-name"
-                    label="Customer name"
-                    value={customerName}
-                    onChange={(event) => setCustomerName(event.target.value)}
-                    placeholder={DEFAULT_WALK_IN_CUSTOMER_NAME}
-                    required
-                    autoComplete="off"
+              {/* Fast path after items: staff code → create (customer/payment live on the right). */}
+              <div className="space-y-3">
+                {staffCodeRequired ? (
+                  <OrderStaffCodeField
+                    id="order-create-staff-code"
+                    value={staffCode}
+                    onChange={(value) => {
+                      setStaffCode(value);
+                      setStaffCodeError("");
+                    }}
+                    error={staffCodeError}
+                    disabled={saving}
                   />
-                  <EnumSelect
-                    id="order-payment-method"
-                    label="Payment via"
-                    value={paymentMethod}
-                    onValueChange={(value) => setPaymentMethod(value as OrderPaymentMethod)}
-                    options={paymentOptions}
-                    required
-                  />
-                </CardContent>
-              </Card>
+                ) : null}
+
+                <PermissionButton
+                  modulePath={MODULE_PATH}
+                  action="create"
+                  type="submit"
+                  className="w-full"
+                  disabled={
+                    saving ||
+                    schemaLoading ||
+                    !businessId ||
+                    (staffCodeRequired && !staffCode.trim())
+                  }
+                >
+                  {saving ? "Creating..." : "Create order"}
+                </PermissionButton>
+              </div>
             </div>
 
             <div className="space-y-4 lg:sticky lg:top-4">
@@ -898,6 +900,31 @@ export default function OrderCreatePage() {
 
               <Card>
                 <CardHeader className="border-b">
+                  <CardTitle>Order details</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-4 pt-4">
+                  <FormField
+                    id="order-customer-name"
+                    label="Customer name"
+                    value={customerName}
+                    onChange={(event) => setCustomerName(event.target.value)}
+                    placeholder={DEFAULT_WALK_IN_CUSTOMER_NAME}
+                    required
+                    autoComplete="off"
+                  />
+                  <EnumSelect
+                    id="order-payment-method"
+                    label="Payment via"
+                    value={paymentMethod}
+                    onValueChange={(value) => setPaymentMethod(value as OrderPaymentMethod)}
+                    options={paymentOptions}
+                    required
+                  />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="border-b">
                   <CardTitle>Order fields</CardTitle>
                 </CardHeader>
                 <CardContent className="grid gap-4 pt-4">
@@ -919,34 +946,6 @@ export default function OrderCreatePage() {
                   )}
                 </CardContent>
               </Card>
-
-              {staffCodeRequired ? (
-                <OrderStaffCodeField
-                  id="order-create-staff-code"
-                  value={staffCode}
-                  onChange={(value) => {
-                    setStaffCode(value);
-                    setStaffCodeError("");
-                  }}
-                  error={staffCodeError}
-                  disabled={saving}
-                />
-              ) : null}
-
-              <PermissionButton
-                modulePath={MODULE_PATH}
-                action="create"
-                type="submit"
-                className="w-full"
-                disabled={
-                  saving ||
-                  schemaLoading ||
-                  !businessId ||
-                  (staffCodeRequired && !staffCode.trim())
-                }
-              >
-                {saving ? "Creating..." : "Create order"}
-              </PermissionButton>
             </div>
           </div>
         </form>

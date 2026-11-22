@@ -358,12 +358,12 @@ export default function OrderDetailPage() {
       }
     }
 
+    // After the completed/cancelled early return above, order.status is open-only.
     if (
       !stripeLocked &&
       status === "completed" &&
       paymentStatus === "unpaid" &&
-      order.total > 0 &&
-      order.status !== "completed"
+      order.total > 0
     ) {
       const result = await confirm({
         title: "Confirm payment before completing?",
@@ -385,36 +385,27 @@ export default function OrderDetailPage() {
     setError("");
     setMessage("");
     try {
-      let updated: OrderRecord;
-      if (order.status === "cancelled") {
-        updated = await api.updateOrder(order._id, {
-          paymentStatus: nextPaymentStatus,
-          ...staffCodePayload(resolvedStaffCode),
-        });
-      } else {
-        const entityPayload = buildEntityPayload(
-          "order",
-          formValues,
-          visibleAdminFields(schemaFields)
-        );
-        updated = await api.updateOrder(order._id, {
-          status,
-          ...(stripeLocked
-            ? {}
-            : {
-                paymentStatus: nextPaymentStatus,
-                paymentMethod: nextPaymentMethod,
-              }),
-          ...entityPayload,
-          ...staffCodePayload(resolvedStaffCode),
-        });
-      }
+      const entityPayload = buildEntityPayload(
+        "order",
+        formValues,
+        visibleAdminFields(schemaFields)
+      );
+      const updated = await api.updateOrder(order._id, {
+        status,
+        ...(stripeLocked
+          ? {}
+          : {
+              paymentStatus: nextPaymentStatus,
+              paymentMethod: nextPaymentMethod,
+            }),
+        ...entityPayload,
+        ...staffCodePayload(resolvedStaffCode),
+      });
       applyOrder(updated);
       setMessage(
         updated.status === "cancelled" && updated.paymentStatus === "refund_pending"
           ? "Order cancelled. Store credit/points restored. Cash or bank payment still needs a refund."
-          : order.status !== "completed" &&
-              updated.status === "completed" &&
+          : updated.status === "completed" &&
               paymentStatus === "unpaid" &&
               nextPaymentStatus === "paid"
             ? "Marked paid and completed."

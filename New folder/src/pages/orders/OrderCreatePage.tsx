@@ -1,0 +1,972 @@
+import type { FormEvent, KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { ArrowLeft, ImageIcon, Plus, Trash2 } from "lucide-react";
+import { api } from "@/lib/api";
+import { BusinessGroupSelect, BusinessSelect } from "@/components/business";
+import { DynamicEntityFields } from "@/components/entity-fields/DynamicEntityFields";
+import { OrderCreateSuccessDialog } from "@/components/orders/OrderCreateSuccessDialog";
+import { OrderProductSelect } from "@/components/orders/OrderProductSelect";
+import { OrderStaffCodeField } from "@/components/orders/OrderStaffCodeField";
+import { PageShell } from "@/components/layout/PageShell";
+import { RequirePermission } from "@/components/layout/RouteGuards";
+import {
+  staffCodePayload,
+  useOrderStaffCodeRequired,
+  validateOrderStaffCode,
+} from "@/hooks/useOrderStaffGate";
+import {
+  EnumSelect,
+  FormField,
+  PageAlerts,
+  PermissionButton,
+  PermissionIconButton,
+} from "@/components/shared";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAuth } from "@/context/AuthContext";
+import {
+  buildEntityPayload,
+  emptyFieldValue,
+  visibleAdminFields,
+} from "@/constants/entityFields";
+import {
+  earnPointsFromSubtotal,
+  resolveLoyaltySettings,
+} from "@/constants/loyalty";
+import {
+  CHECKOUT_PAYMENT_METHOD_OPTIONS,
+  DEFAULT_PORTAL_PAYMENT_METHODS,
+  type CheckoutPaymentMethod,
+} from "@/constants/commerce";
+import { resolveMediaUrl } from "@/lib/media";
+import { MediaImage } from "@/components/shared/MediaImage";
+import { MODULE_PATHS } from "@/lib/modulePaths";
+import { formatMoney } from "@/lib/money";
+import { formatStockBreakdown } from "@/lib/stockDisplay";
+import type {
+  EntityFieldDefinition,
+  OrderCatalogProduct,
+  OrderPaymentMethod,
+  OrderRecord,
+} from "@/types";
+
+const MODULE_PATH = MODULE_PATHS.ORDERS;
+/** Default counter bucket when no specific walk-in name is needed. */
+const DEFAULT_WALK_IN_CUSTOMER_NAME = "Walk-in";
+
+function resolvePortalMethods(value?: string[]): CheckoutPaymentMethod[] {
+  const selected = CHECKOUT_PAYMENT_METHOD_OPTIONS.map((item) => item.value).filter((method) =>
+    (value || []).includes(method)
+  );
+  return selected.length ? selected : [...DEFAULT_PORTAL_PAYMENT_METHODS];
+}
+
+function preferredPaymentMethod(methods: CheckoutPaymentMethod[]): OrderPaymentMethod {
+  if (methods.includes("cash")) return "cash";
+  return (methods[0] || "cash") as OrderPaymentMethod;
+}
+
+interface DraftItem {
+  key: string;
+  productId: string;
+  variationId: string;
+  unitPrice: string;
+  quantity: string;
+  sellUnit: string;
+}
+
+function newDraftItem(): DraftItem {
+  return {
+    key: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    productId: "",
+    variationId: "",
+    unitPrice: "",
+    quantity: "1",
+    sellUnit: "",
+  };
+}
+
+function stockLeftLabel(product: OrderCatalogProduct | undefined, variationId: string) {
+  if (!product) return "";
+  const qty =
+    product.hasVariations && variationId
+      ? Number(
+          product.variations.find((row) => row._id === variationId)?.stockQuantity
+        ) || 0
+      : Number(product.stockQuantity) || 0;
+  if (product.hasVariations && !variationId) return "Select a variation to see stock";
+  return `In stock: ${formatStockBreakdown(qty, product.unit || "piece", product.packagings)}`;
+}
+
+function catalogUnitPrice(
+  product: OrderCatalogProduct | undefined,
+  variationId: string
+): number {
+  if (!product) return 0;
+  if (product.hasVariations) {
+    if (!variationId) return 0;
+    const variation = product.variations.find((row) => row._id === variationId);
+    return Number(variation?.price) || 0;
+  }
+  return Number(product.basePrice) || 0;
+}
+
+function orderFormValues(fields: EntityFieldDefinition[]): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
+  for (const field of visibleAdminFields(fields)) {
+    values[field.key] = emptyFieldValue(field);
+  }
+  return values;
+}
+
+function roundMoney(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+export default function OrderCreatePage() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { rememberStaffCodeRequired } = useOrderStaffCodeRequired();
+  const sessionGroups = user?.businessGroups ?? [];
+  const sessionBusinesses = user?.businesses ?? [];
+  const [productCache, setProductCache] = useState<Record<string, OrderCatalogProduct>>(
+    {}
+  );
+  const [staffCodeRequired, setStaffCodeRequired] = useState(false);
+  const [staffCode, setStaffCode] = useState("");
+  const [staffCodeError, setStaffCodeError] = useState("");
+  const [groupId, setGroupId] = useState(
+    () => (sessionGroups.length === 1 ? sessionGroups[0].id : "")
+  );
+  const [businessId, setBusinessId] = useState(() => {
+    const gid = sessionGroups.length === 1 ? sessionGroups[0].id : "";
+    if (!gid) return "";
+    const forGroup = sessionBusinesses.filter((b) => b.businessGroupId === gid);
+    return forGroup.length === 1 ? forGroup[0].id : "";
+  });
+  const [customerName, setCustomerName] = useState(DEFAULT_WALK_IN_CUSTOMER_NAME);
+  const [paymentMethod, setPaymentMethod] = useState<OrderPaymentMethod>("cash");
+  const [discountMode, setDiscountMode] = useState<"fixed" | "percent">("fixed");
+  const [discountInput, setDiscountInput] = useState("");
+  const [portalPaymentMethods, setPortalPaymentMethods] = useState<CheckoutPaymentMethod[]>(
+    DEFAULT_PORTAL_PAYMENT_METHODS
+  );
+  const [items, setItems] = useState<DraftItem[]>([newDraftItem()]);
+  const [formValues, setFormValues] = useState<Record<string, unknown>>({});
+  const [schemaFields, setSchemaFields] = useState<EntityFieldDefinition[]>([]);
+  const [schemaLoading, setSchemaLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [successOrder, setSuccessOrder] = useState<OrderRecord | null>(null);
+  const [successCheckoutUrl, setSuccessCheckoutUrl] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  const branchOptions = useMemo(
+    () =>
+      sessionBusinesses
+        .filter((business) => business.businessGroupId === groupId)
+        .map((business) => ({
+          id: business.id,
+          name: business.name,
+          businessGroupId: business.businessGroupId,
+        })),
+    [sessionBusinesses, groupId]
+  );
+
+  const selectedGroup = sessionGroups.find((group) => group.id === groupId);
+  const groupCurrency = selectedGroup?.currency || "PKR";
+  const loyalty = useMemo(
+    () => resolveLoyaltySettings(selectedGroup),
+    [selectedGroup]
+  );
+
+  const estimatedSubtotal = useMemo(() => {
+    return roundMoney(
+      items.reduce((sum, item) => {
+        if (!item.productId) return sum;
+        const product = productCache[item.productId];
+        if (!product) return sum;
+        const qty = Math.max(1, Math.floor(Number(item.quantity) || 1));
+        const catalogPrice = catalogUnitPrice(product, item.variationId);
+        const unit =
+          item.unitPrice.trim() === ""
+            ? catalogPrice
+            : Math.max(0, Number(item.unitPrice) || 0);
+        return sum + unit * qty;
+      }, 0)
+    );
+  }, [items, productCache]);
+
+  const discountValue = useMemo(
+    () => Math.max(0, Number(discountInput) || 0),
+    [discountInput]
+  );
+
+  const discountAmount = useMemo(() => {
+    if (discountMode === "percent") {
+      const pct = Math.min(discountValue, 100);
+      return roundMoney(Math.min((estimatedSubtotal * pct) / 100, estimatedSubtotal));
+    }
+    return Math.min(roundMoney(discountValue), estimatedSubtotal);
+  }, [discountMode, discountValue, estimatedSubtotal]);
+
+  const preview = useMemo(() => {
+    const total = roundMoney(Math.max(0, estimatedSubtotal - discountAmount));
+    return {
+      pointsRedeemed: 0,
+      pointsDiscount: 0,
+      walletApplied: 0,
+      discountAmount,
+      total,
+      pointsEarned: loyalty.loyaltyEnabled
+        ? earnPointsFromSubtotal(total, loyalty.earnPointsPerCurrency)
+        : 0,
+      fullyCovered: total === 0 && estimatedSubtotal > 0,
+    };
+  }, [estimatedSubtotal, discountAmount, loyalty]);
+
+  /** Keep fixed discount input within the current subtotal (same idea as % → 100). */
+  useEffect(() => {
+    if (discountMode !== "fixed" || !discountInput.trim()) return;
+    const current = Number(discountInput);
+    if (!Number.isFinite(current) || current <= estimatedSubtotal) return;
+    setDiscountInput(String(roundMoney(estimatedSubtotal)));
+  }, [estimatedSubtotal, discountMode, discountInput]);
+
+  const paymentOptions = useMemo(() => {
+    return CHECKOUT_PAYMENT_METHOD_OPTIONS.filter((option) =>
+      portalPaymentMethods.includes(option.value)
+    ).map((option) => ({ value: option.value, label: option.label }));
+  }, [portalPaymentMethods]);
+
+  useEffect(() => {
+    if (sessionGroups.length === 1) {
+      setGroupId(sessionGroups[0].id);
+    }
+  }, [sessionGroups]);
+
+  useEffect(() => {
+    if (!groupId) {
+      setBusinessId("");
+      return;
+    }
+
+    setCustomerName(DEFAULT_WALK_IN_CUSTOMER_NAME);
+    setItems([newDraftItem()]);
+    setProductCache({});
+    setSchemaFields([]);
+    setFormValues({});
+    setDiscountInput("");
+    setDiscountMode("fixed");
+
+    const branchesForGroup = sessionBusinesses.filter(
+      (business) => business.businessGroupId === groupId
+    );
+    if (branchesForGroup.length === 1) {
+      setBusinessId(branchesForGroup[0].id);
+    } else {
+      setBusinessId((current) =>
+        branchesForGroup.some((branch) => branch.id === current) ? current : ""
+      );
+    }
+  }, [groupId, sessionBusinesses]);
+
+  useEffect(() => {
+    if (!groupId || !businessId) {
+      setProductCache({});
+      setSchemaFields([]);
+      setFormValues({});
+      setItems([newDraftItem()]);
+      setStaffCodeRequired(false);
+      setStaffCode("");
+      setStaffCodeError("");
+      return;
+    }
+
+    let cancelled = false;
+    setSchemaLoading(true);
+    setItems([newDraftItem()]);
+    setProductCache({});
+
+    Promise.all([
+      // Lightweight call: payment methods only (products load on demand in the picker).
+      api.getOrderCatalogOptions({ groupId, businessId, page: 1, limit: 1 }),
+      api.getOrderSchema({ businessId }),
+    ])
+      .then(([catalogMeta, schema]) => {
+        if (cancelled) return;
+        setSchemaFields(schema.fields);
+        setFormValues(orderFormValues(schema.fields));
+        const methods = resolvePortalMethods(catalogMeta.portalPaymentMethods);
+        setPortalPaymentMethods(methods);
+        setPaymentMethod(preferredPaymentMethod(methods));
+        const required = Boolean(catalogMeta.sharedLoginStaffCode);
+        rememberStaffCodeRequired(businessId, required);
+        setStaffCodeRequired(required);
+        setStaffCode("");
+        setStaffCodeError("");
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Unable to load order fields.");
+          setSchemaFields([]);
+          setFormValues({});
+        }
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setSchemaLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [groupId, businessId]);
+
+  function updateFormField(key: string, value: unknown) {
+    setFormValues((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateItem(key: string, patch: Partial<DraftItem>) {
+    setItems((current) =>
+      current.map((item) => (item.key === key ? { ...item, ...patch } : item))
+    );
+  }
+
+  function insertItemAfter(afterKey: string) {
+    const draft = newDraftItem();
+    setItems((current) => {
+      const index = current.findIndex((row) => row.key === afterKey);
+      if (index < 0) return [...current, draft];
+      const next = [...current];
+      next.splice(index + 1, 0, draft);
+      return next;
+    });
+    window.setTimeout(() => {
+      document.getElementById(`product-${draft.key}`)?.focus();
+    }, 0);
+  }
+
+  function handleItemEnter(afterKey: string) {
+    if (!businessId) return;
+    insertItemAfter(afterKey);
+  }
+
+  function focusItemPrice(itemKey: string) {
+    window.setTimeout(() => {
+      const price = document.getElementById(`price-${itemKey}`) as HTMLInputElement | null;
+      if (price && !price.disabled) {
+        price.focus();
+        price.select?.();
+        return;
+      }
+      document.getElementById(`product-${itemKey}`)?.focus();
+    }, 0);
+  }
+
+  function removeItemRow(itemKey: string) {
+    setItems((current) => {
+      const index = current.findIndex((row) => row.key === itemKey);
+      if (index < 0) return current;
+
+      let focusKey = "";
+      let next: DraftItem[];
+
+      if (current.length <= 1) {
+        const draft = newDraftItem();
+        next = [draft];
+        focusKey = draft.key;
+      } else if (index > 0) {
+        // Deleted a later row → stay on previous row's price.
+        focusKey = current[index - 1].key;
+        next = current.filter((row) => row.key !== itemKey);
+      } else {
+        // Deleted the first row → next row becomes first; focus its price.
+        focusKey = current[index + 1].key;
+        next = current.filter((row) => row.key !== itemKey);
+      }
+
+      focusItemPrice(focusKey);
+      return next;
+    });
+  }
+
+  function handleItemRowKeyDown(event: KeyboardEvent<HTMLDivElement>, itemKey: string) {
+    if (event.key !== "Delete") return;
+    // Delete removes the whole line from any field in the row (Product / Qty / Price / etc.).
+    // Backspace still edits text normally.
+    event.preventDefault();
+    event.stopPropagation();
+    removeItemRow(itemKey);
+  }
+
+  function handleItemFieldEnter(event: KeyboardEvent<HTMLInputElement>, itemKey: string) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    event.stopPropagation();
+    handleItemEnter(itemKey);
+  }
+
+  function resetFormForNextOrder() {
+    setCustomerName(DEFAULT_WALK_IN_CUSTOMER_NAME);
+    setItems([newDraftItem()]);
+    setFormValues(orderFormValues(schemaFields));
+    setPaymentMethod(preferredPaymentMethod(portalPaymentMethods));
+    setDiscountInput("");
+    setDiscountMode("fixed");
+    setStaffCode("");
+    setStaffCodeError("");
+    setError("");
+    setMessage("");
+  }
+
+  function handleSuccessAddNew() {
+    setSuccessOrder(null);
+    setSuccessCheckoutUrl(null);
+    resetFormForNextOrder();
+  }
+
+  function handleSuccessViewDetail() {
+    if (!successOrder) return;
+    const id = successOrder._id;
+    setSuccessOrder(null);
+    setSuccessCheckoutUrl(null);
+    navigate(`${MODULE_PATH}/${id}`);
+  }
+
+  useEffect(() => {
+    function onKeyDown(event: globalThis.KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      if (event.key.toLowerCase() !== "s") return;
+      event.preventDefault();
+      if (saving || schemaLoading || successOrder) return;
+      formRef.current?.requestSubmit();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [saving, schemaLoading, successOrder]);
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+
+    if (schemaLoading) {
+      setError("Order fields are still loading.");
+      return;
+    }
+    if (!groupId) {
+      setError("Please select a business group.");
+      return;
+    }
+    if (!businessId) {
+      setError("Please select a business.");
+      return;
+    }
+    if (!customerName.trim()) {
+      setError("Please enter a customer name.");
+      return;
+    }
+
+    const payloadItems = items
+      .filter((item) => item.productId)
+      .map((item) => {
+        const product = productCache[item.productId];
+        const catalogPrice = catalogUnitPrice(product, item.variationId);
+        const unitPrice =
+          item.unitPrice.trim() === ""
+            ? catalogPrice
+            : Math.max(0, Number(item.unitPrice) || 0);
+        return {
+          productId: item.productId,
+          variationId: item.variationId || undefined,
+          quantity: Number(item.quantity) || 1,
+          unitPrice,
+          // Orders are always in the product base unit (piece).
+          sellUnit: product?.unit || "piece",
+        };
+      });
+
+    if (payloadItems.length === 0) {
+      setError("Add at least one product.");
+      return;
+    }
+
+    let resolvedStaffCode = "";
+    if (staffCodeRequired) {
+      setStaffCodeError("");
+      try {
+        const staff = await validateOrderStaffCode(businessId, staffCode);
+        resolvedStaffCode = staff.staffCode;
+      } catch (err) {
+        setStaffCodeError(err instanceof Error ? err.message : "Invalid staff code.");
+        return;
+      }
+    }
+
+    setSaving(true);
+    try {
+      const entityPayload = buildEntityPayload("order", formValues, schemaFields);
+      const order = await api.createOrder({
+        groupId,
+        businessId,
+        customerName: customerName.trim(),
+        items: payloadItems,
+        paymentMethod,
+        discountType: discountMode,
+        discountValue:
+          discountMode === "percent"
+            ? Math.min(discountValue, 100)
+            : discountAmount > 0
+              ? discountAmount
+              : 0,
+        discountAmount: discountAmount > 0 ? discountAmount : 0,
+        ...entityPayload,
+        ...staffCodePayload(resolvedStaffCode),
+      });
+      setSuccessOrder(order);
+      setSuccessCheckoutUrl(order.checkoutUrl || null);
+      setMessage("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to create order.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <RequirePermission path={MODULE_PATH} action="create">
+      <PageShell
+        title="Create order"
+        description="Pick one business, then add products from that business only."
+        action={
+          <Button type="button" variant="outline" onClick={() => navigate(MODULE_PATH)}>
+            <ArrowLeft className="size-4" />
+            Back to orders
+          </Button>
+        }
+      >
+        <PageAlerts error={error} message={message} />
+
+        <form ref={formRef} onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(300px,1fr)] lg:items-start">
+            <div className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <BusinessGroupSelect
+                  id="order-group"
+                  label="Business group"
+                  value={groupId}
+                  onValueChange={(next) => {
+                    setGroupId(next);
+                    setBusinessId("");
+                  }}
+                  options={sessionGroups.map((group) => ({
+                    id: group.id,
+                    name: group.name,
+                  }))}
+                  allowEmpty={false}
+                  required
+                />
+                <BusinessSelect
+                  id="order-business"
+                  label="Business"
+                  scope="assigned"
+                  value={businessId}
+                  onValueChange={setBusinessId}
+                  options={branchOptions}
+                  required
+                  placeholder={
+                    groupId ? "Select business" : "Select a business group first"
+                  }
+                  // hint="Products are limited to this business."
+                />
+              </div>
+
+              <Card>
+                <CardHeader className="border-b">
+                  <div className="flex items-center justify-between gap-2">
+                    <CardTitle>
+                      Items <span className="text-destructive">*</span>
+                    </CardTitle>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!businessId}
+                      tabIndex={-1}
+                      onClick={() => {
+                        const draft = newDraftItem();
+                        setItems((current) => [...current, draft]);
+                      }}
+                    >
+                      <Plus className="size-4" />
+                      Add item
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3 pt-4">
+                  {!businessId ? (
+                    <p className="text-sm text-muted-foreground">
+                      Select a business to choose products.
+                    </p>
+                  ) : (
+                    items.map((item) => {
+                      const product = productCache[item.productId];
+                      const imageSrc = product?.imagePath
+                        ? resolveMediaUrl(product.imagePath)
+                        : "";
+                      const hasVariations = Boolean(product?.hasVariations);
+                      const stockLabel = stockLeftLabel(product, item.variationId);
+                      return (
+                        <div
+                          key={item.key}
+                          className={
+                            hasVariations
+                              ? "grid gap-3 rounded-xl border p-3 sm:grid-cols-[64px_1fr_1fr_90px_110px_auto]"
+                              : "grid gap-3 rounded-xl border p-3 sm:grid-cols-[64px_1fr_90px_110px_auto]"
+                          }
+                          onKeyDown={(event) => handleItemRowKeyDown(event, item.key)}
+                        >
+                          <div className="bg-muted flex size-16 items-center justify-center overflow-hidden rounded-lg border">
+                            {imageSrc ? (
+                              <MediaImage
+                                src={imageSrc}
+                                alt=""
+                                className="size-full object-cover"
+                              />
+                            ) : (
+                              <ImageIcon className="text-muted-foreground size-4" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <OrderProductSelect
+                              id={`product-${item.key}`}
+                              groupId={groupId}
+                              businessId={businessId}
+                              value={item.productId}
+                              selectedProduct={product || null}
+                              onSelect={(next) => {
+                                if (!next) {
+                                  setProductCache((current) => {
+                                    const copy = { ...current };
+                                    delete copy[item.productId];
+                                    return copy;
+                                  });
+                                  updateItem(item.key, {
+                                    productId: "",
+                                    variationId: "",
+                                    unitPrice: "",
+                                    sellUnit: "",
+                                  });
+                                  return;
+                                }
+                                setProductCache((current) => ({
+                                  ...current,
+                                  [next._id]: next,
+                                }));
+                                updateItem(item.key, {
+                                  productId: next._id,
+                                  variationId: "",
+                                  unitPrice: next.hasVariations
+                                    ? ""
+                                    : String(catalogUnitPrice(next, "") || ""),
+                                  sellUnit: next.unit || "piece",
+                                });
+                              }}
+                              required
+                              onEnterWhenClosed={() => handleItemEnter(item.key)}
+                            />
+                            {stockLabel ? (
+                              <p className="text-muted-foreground mt-1 text-xs">{stockLabel}</p>
+                            ) : null}
+                          </div>
+                          {hasVariations ? (
+                            <EnumSelect
+                              id={`variation-${item.key}`}
+                              label="Variation"
+                              value={item.variationId}
+                              onValueChange={(value) =>
+                                updateItem(item.key, {
+                                  variationId: value,
+                                  unitPrice: String(catalogUnitPrice(product, value) || ""),
+                                })
+                              }
+                              options={product!.variations.map((row) => ({
+                                value: row._id,
+                                label: `${row.name} · ${formatMoney(row.price, groupCurrency)}`,
+                              }))}
+                              required
+                              onEnterWhenClosed={() => handleItemEnter(item.key)}
+                            />
+                          ) : null}
+                          <FormField
+                            id={`qty-${item.key}`}
+                            label="Qty"
+                            type="number"
+                            min={1}
+                            value={item.quantity}
+                            onChange={(event) =>
+                              updateItem(item.key, { quantity: event.target.value })
+                            }
+                            onKeyDown={(event) => handleItemFieldEnter(event, item.key)}
+                            required
+                          />
+                          <FormField
+                            id={`price-${item.key}`}
+                            label="Price"
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={item.unitPrice}
+                            onChange={(event) =>
+                              updateItem(item.key, { unitPrice: event.target.value })
+                            }
+                            onKeyDown={(event) => handleItemFieldEnter(event, item.key)}
+                            placeholder={groupCurrency}
+                            required={Boolean(item.productId)}
+                            disabled={!item.productId || (hasVariations && !item.variationId)}
+                          />
+                          <div className="flex items-end">
+                            <PermissionIconButton
+                              modulePath={MODULE_PATH}
+                              action="create"
+                              label="Remove item"
+                              variant="destructive"
+                              icon={<Trash2 />}
+                              tabIndex={-1}
+                              onClick={() => removeItemRow(item.key)}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="border-b">
+                  <CardTitle>Order details</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-4 pt-4 sm:grid-cols-2">
+                  <FormField
+                    id="order-customer-name"
+                    label="Customer name"
+                    value={customerName}
+                    onChange={(event) => setCustomerName(event.target.value)}
+                    placeholder={DEFAULT_WALK_IN_CUSTOMER_NAME}
+                    required
+                    autoComplete="off"
+                  />
+                  <EnumSelect
+                    id="order-payment-method"
+                    label="Payment via"
+                    value={paymentMethod}
+                    onValueChange={(value) => setPaymentMethod(value as OrderPaymentMethod)}
+                    options={paymentOptions}
+                    required
+                  />
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="space-y-4 lg:sticky lg:top-4">
+              <Card>
+                <CardHeader className="border-b">
+                  <CardTitle>Summary</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 pt-4 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">Est. subtotal</span>
+                    <span className="font-medium">
+                      {formatMoney(estimatedSubtotal, groupCurrency)}
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <label htmlFor="order-discount" className="text-muted-foreground">
+                        Discount
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <div
+                          className="border-input bg-muted/40 inline-flex h-8 rounded-lg border p-0.5"
+                          role="group"
+                          aria-label="Discount type"
+                        >
+                          <button
+                            type="button"
+                            className={`rounded-md px-2 text-xs font-medium transition-colors ${
+                              discountMode === "fixed"
+                                ? "bg-background text-foreground shadow-sm"
+                                : "text-muted-foreground hover:text-foreground"
+                            }`}
+                            onClick={() => {
+                              setDiscountMode("fixed");
+                              const current = Number(discountInput);
+                              if (
+                                Number.isFinite(current) &&
+                                current > estimatedSubtotal
+                              ) {
+                                setDiscountInput(String(roundMoney(estimatedSubtotal)));
+                              }
+                            }}
+                          >
+                            {groupCurrency}
+                          </button>
+                          <button
+                            type="button"
+                            className={`rounded-md px-2 text-xs font-medium transition-colors ${
+                              discountMode === "percent"
+                                ? "bg-background text-foreground shadow-sm"
+                                : "text-muted-foreground hover:text-foreground"
+                            }`}
+                            onClick={() => {
+                              setDiscountMode("percent");
+                              const current = Number(discountInput);
+                              if (Number.isFinite(current) && current > 100) {
+                                setDiscountInput("100");
+                              }
+                            }}
+                          >
+                            %
+                          </button>
+                        </div>
+                        <input
+                          id="order-discount"
+                          type="number"
+                          min={0}
+                          max={
+                            discountMode === "percent"
+                              ? 100
+                              : estimatedSubtotal || undefined
+                          }
+                          step={discountMode === "percent" ? "1" : "0.01"}
+                          inputMode="decimal"
+                          placeholder="0"
+                          value={discountInput}
+                          onChange={(event) => {
+                            const next = event.target.value;
+                            if (next === "") {
+                              setDiscountInput("");
+                              return;
+                            }
+                            const num = Number(next);
+                            if (!Number.isFinite(num)) {
+                              setDiscountInput(next);
+                              return;
+                            }
+                            if (discountMode === "percent" && num > 100) {
+                              setDiscountInput("100");
+                              return;
+                            }
+                            if (discountMode === "fixed" && num > estimatedSubtotal) {
+                              setDiscountInput(String(roundMoney(estimatedSubtotal)));
+                              return;
+                            }
+                            setDiscountInput(next);
+                          }}
+                          className="border-input bg-background h-8 w-20 rounded-lg border px-2 text-right text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                        />
+                      </div>
+                    </div>
+                    {discountAmount > 0 && discountMode === "percent" ? (
+                      <div className="flex items-center justify-between gap-3 text-xs">
+                        <span className="text-muted-foreground">
+                          {Math.min(discountValue, 100)}% off
+                        </span>
+                        <span>−{formatMoney(discountAmount, groupCurrency)}</span>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center justify-between gap-3 border-t pt-3">
+                    <span className="font-medium">Total due</span>
+                    <span className="font-semibold">
+                      {formatMoney(preview.total, groupCurrency)}
+                    </span>
+                  </div>
+                  <p className="text-muted-foreground text-xs">
+                    {loyalty.loyaltyEnabled && preview.pointsEarned > 0
+                      ? `About ${preview.pointsEarned} points when completed. Customer is saved for analytics.`
+                      : loyalty.loyaltyEnabled
+                        ? "Customer is saved to this group for order history and analytics."
+                        : "Customer is saved to this group for order history and analytics. Loyalty is off."}
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="border-b">
+                  <CardTitle>Order fields</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-4 pt-4">
+                  {!businessId ? (
+                    <p className="text-sm text-muted-foreground">
+                      Select a business to load its order fields.
+                    </p>
+                  ) : schemaLoading ? (
+                    <p className="text-sm text-muted-foreground">Loading fields...</p>
+                  ) : visibleAdminFields(schemaFields).length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No extra fields for this business.</p>
+                  ) : (
+                    <DynamicEntityFields
+                      fields={schemaFields}
+                      values={formValues}
+                      onChange={updateFormField}
+                      idPrefix="order-create"
+                    />
+                  )}
+                </CardContent>
+              </Card>
+
+              {staffCodeRequired ? (
+                <OrderStaffCodeField
+                  id="order-create-staff-code"
+                  value={staffCode}
+                  onChange={(value) => {
+                    setStaffCode(value);
+                    setStaffCodeError("");
+                  }}
+                  error={staffCodeError}
+                  disabled={saving}
+                />
+              ) : null}
+
+              <PermissionButton
+                modulePath={MODULE_PATH}
+                action="create"
+                type="submit"
+                className="w-full"
+                disabled={
+                  saving ||
+                  schemaLoading ||
+                  !businessId ||
+                  (staffCodeRequired && !staffCode.trim())
+                }
+              >
+                {saving ? "Creating..." : "Create order"}
+              </PermissionButton>
+            </div>
+          </div>
+        </form>
+
+        <OrderCreateSuccessDialog
+          open={Boolean(successOrder)}
+          order={successOrder}
+          checkoutUrl={successCheckoutUrl}
+          businessName={branchOptions.find((row) => row.id === businessId)?.name}
+          sessionUserName={user?.name || ""}
+          onAddNew={handleSuccessAddNew}
+          onViewDetail={handleSuccessViewDetail}
+          onOpenChange={(open) => {
+            if (!open) {
+              // Closing without "Add new" still clears the form so the next order is clean.
+              handleSuccessAddNew();
+            }
+          }}
+        />
+      </PageShell>
+    </RequirePermission>
+  );
+}

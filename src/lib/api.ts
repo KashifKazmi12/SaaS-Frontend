@@ -460,6 +460,26 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  quickUpdateStock: (payload: {
+    businessId: string;
+    mode: "add" | "set";
+    lines: Array<{
+      stockId: string;
+      quantity?: number | string | null;
+      packagingUnit?: string;
+      unitPrice?: number | string | null;
+    }>;
+  }) =>
+    request<{
+      updated: number;
+      failed: number;
+      items: import("@/types").StockRecord[];
+      errors: Array<{ row: number; stockId?: string; message: string }>;
+    }>("/stock/quick-update", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
   importStock: (payload: {
     businessId: string;
     rows: Record<string, string>[];

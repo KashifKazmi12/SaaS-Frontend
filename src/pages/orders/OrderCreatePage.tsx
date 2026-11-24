@@ -691,7 +691,7 @@ export default function OrderCreatePage() {
                               }
                               options={product!.variations.map((row) => ({
                                 value: row._id,
-                                label: `${row.name} · ${formatMoney(row.price, groupCurrency)}`,
+                                label: `${row.name} · Sal ${formatMoney(row.price, groupCurrency)} · Cost ${formatMoney(row.costPrice || 0, groupCurrency)}`,
                               }))}
                               required
                               onEnterWhenClosed={() => handleItemEnter(item.key)}

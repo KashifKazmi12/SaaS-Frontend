@@ -394,6 +394,8 @@ export interface StockRecord {
   stockLevel: StockLevel;
   sku: string;
   unit: string;
+  /** Current sell/base unit price (variation price or product basePrice). */
+  price?: number;
   productKind?: string;
   packagings?: ProductPackaging[];
   sellUnits?: StockSellUnit[];
@@ -404,6 +406,7 @@ export interface StockRecord {
         name: string;
         sku: string;
         unit: string;
+        basePrice?: number;
         productKind?: string;
         packagings?: ProductPackaging[];
         hasVariations: boolean;
@@ -411,7 +414,13 @@ export interface StockRecord {
         category?: { _id: string; name: string } | string | null;
       }
     | string;
-  variation?: { _id: string; name: string; sku: string; isActive: boolean } | null;
+  variation?: {
+    _id: string;
+    name: string;
+    sku: string;
+    price?: number;
+    isActive: boolean;
+  } | null;
   business?: { _id: string; name: string } | string;
 }
 

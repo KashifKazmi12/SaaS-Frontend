@@ -91,9 +91,9 @@ function ComboboxContent({
   align = "start",
   alignOffset = 0,
   anchor,
-  // Fixed + viewport collision keeps lists visible near the bottom of long order forms.
+  // Fixed positioning + collision padding keeps lists visible near the bottom of long forms.
   positionMethod = "fixed",
-  collisionBoundary = "viewport",
+  collisionBoundary = "clipping-ancestors",
   collisionPadding = 12,
   ...props
 }: ComboboxPrimitive.Popup.Props &

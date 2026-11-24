@@ -37,6 +37,7 @@ import {
 import {
   ALL_FILTER,
   ORDER_PAYMENT_FILTER_OPTIONS,
+  ORDER_PAYMENT_METHOD_OPTIONS,
   ORDER_STATUS_OPTIONS,
   ORDER_STATUS_TABS,
   orderPaymentStatusLabel,
@@ -77,8 +78,11 @@ function statusBadgeVariant(status: OrderStatus) {
   return "secondary" as const;
 }
 
-function customerLabel(order: OrderRecord) {
-  return getBusinessDisplayName(order.customer as { _id: string; name: string } | string);
+function paymentViaLabel(order: OrderRecord) {
+  return (
+    ORDER_PAYMENT_METHOD_OPTIONS.find((option) => option.value === order.paymentMethod)
+      ?.label || order.paymentMethod || "—"
+  );
 }
 
 export default function OrdersPage() {
@@ -128,7 +132,7 @@ export default function OrdersPage() {
       textColumn<OrderRecord>("orderNumber", "Order", (order) => order.orderNumber, {
         primary: true,
       }),
-      textColumn<OrderRecord>("customer", "Customer", (order) => customerLabel(order)),
+      textColumn<OrderRecord>("paymentVia", "Payment via", (order) => paymentViaLabel(order)),
       ...(showGroupFilter
         ? [
             textColumn<OrderRecord>("group", "Group", (order) =>

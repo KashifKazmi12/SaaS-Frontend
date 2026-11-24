@@ -295,6 +295,13 @@ export default function StockPage() {
               </Button>
               <PermissionButton
                 modulePath={MODULE_PATH}
+                action="update"
+                onClick={() => navigate(`${MODULE_PATH}/update`)}
+              >
+                Update stock
+              </PermissionButton>
+              <PermissionButton
+                modulePath={MODULE_PATH}
                 action="create"
                 variant="outline"
                 onClick={() => setImportOpen(true)}

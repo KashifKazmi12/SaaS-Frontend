@@ -23,6 +23,13 @@ function stockLabel(stock: StockRecord) {
   return `${productName}${variation}${sku}`;
 }
 
+function money(value: number) {
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+}
+
 export function StockItemSelect({
   businessId,
   value,
@@ -229,11 +236,24 @@ export function StockItemSelect({
               {loading ? "Loading…" : error || "No products found."}
             </ComboboxEmpty>
             <ComboboxList onScroll={(event) => maybeLoadMore(event.currentTarget)}>
-              {(itemId) => (
-                <ComboboxItem key={itemId} value={itemId}>
-                  <span className="truncate">{labelById[itemId] ?? itemId}</span>
-                </ComboboxItem>
-              )}
+              {(itemId) => {
+                const stock =
+                  displayItems.find((row) => row._id === itemId) ||
+                  (selectedStock?._id === itemId ? selectedStock : null);
+                const sale = Number(stock?.price) || 0;
+                const cost = Number(stock?.costPrice) || 0;
+                return (
+                  <ComboboxItem key={itemId} value={itemId}>
+                    <span className="flex min-w-0 flex-1 items-center justify-between gap-3 pr-1">
+                      <span className="min-w-0 truncate">{labelById[itemId] ?? itemId}</span>
+                      <span className="shrink-0 text-xs tabular-nums whitespace-nowrap">
+                        <span className="text-muted-foreground">Sal</span> {money(sale)}
+                        <span className="text-muted-foreground"> · Cost</span> {money(cost)}
+                      </span>
+                    </span>
+                  </ComboboxItem>
+                );
+              }}
             </ComboboxList>
             {loadingMore ? (
               <p className="text-muted-foreground border-t px-2 py-1.5 text-center text-xs">

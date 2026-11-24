@@ -359,6 +359,8 @@ export interface OrderCatalogProduct {
   _id: string;
   name: string;
   basePrice: number;
+  /** Purchase/cost price (base unit). */
+  costPrice?: number;
   hasVariations: boolean;
   sku: string;
   business: string;
@@ -372,6 +374,7 @@ export interface OrderCatalogProduct {
     _id: string;
     name: string;
     price: number;
+    costPrice?: number;
     sku: string;
     stockQuantity?: number;
   }>;
@@ -396,6 +399,8 @@ export interface StockRecord {
   unit: string;
   /** Current sell/base unit price (variation price or product basePrice). */
   price?: number;
+  /** Purchase/cost price (base unit). */
+  costPrice?: number;
   productKind?: string;
   packagings?: ProductPackaging[];
   sellUnits?: StockSellUnit[];
@@ -407,6 +412,7 @@ export interface StockRecord {
         sku: string;
         unit: string;
         basePrice?: number;
+        costPrice?: number;
         productKind?: string;
         packagings?: ProductPackaging[];
         hasVariations: boolean;
@@ -419,6 +425,7 @@ export interface StockRecord {
     name: string;
     sku: string;
     price?: number;
+    costPrice?: number;
     isActive: boolean;
   } | null;
   business?: { _id: string; name: string } | string;

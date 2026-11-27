@@ -431,6 +431,39 @@ export interface StockRecord {
   business?: { _id: string; name: string } | string;
 }
 
+export interface StockUpdateBatchLine {
+  stock: string | null;
+  productName: string;
+  sku: string;
+  variationName: string;
+  packagingUnit: string;
+  quantity: number | null;
+  unitPrice: number | null;
+  costPrice: number | null;
+  beforeQty: number;
+  afterQty: number;
+  saleAmount: number;
+  costAmount: number;
+}
+
+export interface StockUpdateBatchRecord {
+  _id: string;
+  batchNumber: string;
+  business: { _id: string; name: string } | null;
+  mode: "add" | "set";
+  postedBy: string | null;
+  postedByName: string;
+  lineCount: number;
+  totalQuantity: number;
+  totalSale: number;
+  totalCost: number;
+  totalSaleAmount: number;
+  totalCostAmount: number;
+  lines?: StockUpdateBatchLine[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface VariationOption {
   name: string;
   value: string;
@@ -562,7 +595,8 @@ export interface DashboardKpis {
   unpaidAmount: number;
   refundPending: number;
   refundPendingAmount: number;
-  newCustomers: number;
+  refunded: number;
+  refundedAmount: number;
   lowStock: number;
   outOfStock: number;
 }
@@ -583,6 +617,28 @@ export interface DashboardBreakdowns {
   byBranch: Array<{ businessId: string; name: string; sales: number; quantity: number }>;
   byPayment: Array<{ paymentStatus: string; count: number; total: number }>;
   topProducts: Array<{ name: string; sku: string; quantity: number; sales: number }>;
+}
+
+export interface DashboardReportOrder {
+  _id: string;
+  orderNumber: string;
+  customer: string;
+  itemsSummary: string;
+  status: string;
+  paymentStatus: string;
+  paymentMethod: string;
+  total: number;
+  createdAt?: string;
+}
+
+export interface DashboardReportOrders {
+  group: InsightsGroup;
+  businesses: NamedOption[];
+  range: { key: string; from: string; to: string };
+  total: number;
+  limit: number;
+  truncated: boolean;
+  items: DashboardReportOrder[];
 }
 
 export interface RecycleBinRecord {

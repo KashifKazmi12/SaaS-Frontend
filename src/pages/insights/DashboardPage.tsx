@@ -4,17 +4,17 @@ import {
   AlertTriangle,
   ArrowUpRight,
   Banknote,
-  Download,
+  FileDown,
   Package,
   PackageX,
   ShoppingBag,
-  UserPlus,
   Wallet,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { PageShell } from "@/components/layout/PageShell";
 import { RequirePermission } from "@/components/layout/RouteGuards";
 import { PageAlerts, PermissionButton } from "@/components/shared";
+import { downloadDashboardReportPdf } from "@/lib/dashboardReportExport";
 import {
   AttentionOrderRow,
   AttentionStockRow,
@@ -88,7 +88,9 @@ export default function DashboardPage() {
   const [unpaidPage, setUnpaidPage] = useState(1);
   const [refundsPage, setRefundsPage] = useState(1);
   const [stockPage, setStockPage] = useState(1);
+  const [exporting, setExporting] = useState(false);
   const [message, setMessage] = useState("");
+  const [exportError, setExportError] = useState("");
 
   useEffect(() => {
     setUnpaidPage(1);
@@ -132,22 +134,39 @@ export default function DashboardPage() {
     .join(" ");
 
   const stockItems = stock.data?.items || [];
+  const refundsTotal = kpis ? (kpis.refunded || 0) + (kpis.refundPending || 0) : 0;
 
-  function handleExport() {
-    const payload = {
-      summary: summary.data,
-      charts: charts.data,
-      breakdowns: breakdowns.data,
-    };
-    if (!summary.data && !charts.data && !breakdowns.data) return;
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "dashboard.json";
-    link.click();
-    URL.revokeObjectURL(url);
-    setMessage("Dashboard exported.");
+  async function handleDownloadPdf() {
+    if (!summary.data?.kpis || !scope.canFetch || exporting) return;
+    setExporting(true);
+    setExportError("");
+    setMessage("");
+    try {
+      const report = await api.getDashboardReportOrders(scope.params);
+      const businessName =
+        scope.businessId !== ALL_FILTER
+          ? summary.data.businesses.find((item) => item._id === scope.businessId)?.name || "Branch"
+          : "All branches";
+      downloadDashboardReportPdf(summary.data.kpis, report.items, {
+        groupName: summary.data.group.name,
+        businessName,
+        range: scope.range,
+        rangeFrom: summary.data.range.from,
+        rangeTo: summary.data.range.to,
+        currency: summary.data.group.currency,
+        truncated: report.truncated,
+        totalOrders: report.total,
+      });
+      setMessage(
+        report.truncated
+          ? `PDF downloaded (${report.items.length} of ${report.total} orders).`
+          : "PDF downloaded."
+      );
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : "Unable to download PDF.");
+    } finally {
+      setExporting(false);
+    }
   }
 
   return (
@@ -160,15 +179,15 @@ export default function DashboardPage() {
             action="export"
             size="sm"
             variant="outline"
-            onClick={handleExport}
-            disabled={!summary.data && !charts.data && !breakdowns.data}
+            onClick={handleDownloadPdf}
+            disabled={!kpis || exporting || !scope.canFetch}
           >
-            <Download className="size-3.5" />
-            Export JSON
+            <FileDown className="size-3.5" />
+            {exporting ? "Preparing PDF..." : "Download PDF"}
           </PermissionButton>
         }
       >
-        <PageAlerts error={error} message={message} />
+        <PageAlerts error={[error, exportError].filter(Boolean).join(" ")} message={message} />
 
         {!scope.ready ? (
           <InsightsFiltersSkeleton />
@@ -248,11 +267,15 @@ export default function DashboardPage() {
                 })}
               />
               <InsightsKpiCard
-                label="New customers"
-                value={String(kpis.newCustomers)}
-                icon={UserPlus}
+                label="Refunds"
+                value={String(refundsTotal)}
+                hint={`${kpis.refunded || 0} refunded · ${kpis.refundPending || 0} pending`}
+                icon={Wallet}
                 accent="violet"
-                to={listPath(MODULE_PATHS.CUSTOMERS, { groupId: scope.groupId })}
+                to={listPath(MODULE_PATHS.ORDERS, {
+                  groupId: scope.groupId,
+                  paymentStatus: "refunded",
+                })}
               />
               <InsightsKpiCard
                 label="Low stock"

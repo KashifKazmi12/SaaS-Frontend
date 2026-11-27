@@ -56,6 +56,12 @@ export function getPageTitle(pathname: string): string {
   if (pathname === "/stock/request") {
     return "Request stock";
   }
+  if (/^\/stock\/updates\/[^/]+$/.test(pathname)) {
+    return "Stock update detail";
+  }
+  if (pathname === "/stock/updates") {
+    return "Stock update history";
+  }
   const match = Object.entries(MODULE_PAGE_TITLES).find(([path]) => pathname.startsWith(path));
   return match?.[1] || "Dashboard";
 }

@@ -476,10 +476,20 @@ export const api = {
       failed: number;
       items: import("@/types").StockRecord[];
       errors: Array<{ row: number; stockId?: string; message: string }>;
+      batchId?: string | null;
+      batchNumber?: string | null;
     }>("/stock/quick-update", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
+  getStockUpdateBatches: (params?: ListQueryParams) =>
+    request<ListResponse<import("@/types").StockUpdateBatchRecord>>(
+      `/stock/updates${buildQuery(params)}`
+    ),
+
+  getStockUpdateBatch: (id: string) =>
+    request<import("@/types").StockUpdateBatchRecord>(`/stock/updates/${id}`),
 
   importStock: (payload: {
     businessId: string;
@@ -664,6 +674,11 @@ export const api = {
   getDashboardBreakdowns: (params?: ListQueryParams) =>
     request<import("@/types").DashboardBreakdowns>(
       `/insights/dashboard/breakdowns${buildQuery(params)}`
+    ),
+
+  getDashboardReportOrders: (params?: ListQueryParams) =>
+    request<import("@/types").DashboardReportOrders>(
+      `/insights/dashboard/report-orders${buildQuery(params)}`
     ),
 
   getRecycleBin: (params?: ListQueryParams) =>

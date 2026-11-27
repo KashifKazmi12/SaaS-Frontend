@@ -441,13 +441,27 @@ export default function StockPage() {
                   ? `Request stock (${selectedCount} selected)`
                   : "Request stock"}
               </PermissionButton>
+              <PermissionButton
+                modulePath={MODULE_PATH}
+                action="view"
+                variant="outline"
+                onClick={() =>
+                  navigate(
+                    listBusinessId && listBusinessId !== ALL_FILTER
+                      ? `${MODULE_PATH}/updates?businessId=${encodeURIComponent(listBusinessId)}`
+                      : `${MODULE_PATH}/updates`
+                  )
+                }
+              >
+                Update history
+              </PermissionButton>
             </>
           }
           filters={
             <ListFilters
               search={list.searchInput}
               onSearchChange={list.setSearchInput}
-              searchPlaceholder="Search products or SKUs..."
+              searchPlaceholder="Search products..."
               activeCount={list.activeCount}
               onClear={list.clearFilters}
             >

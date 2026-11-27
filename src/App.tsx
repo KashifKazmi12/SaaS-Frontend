@@ -17,6 +17,8 @@ import OrderCreatePage from "@/pages/orders/OrderCreatePage";
 import OrderDetailPage from "@/pages/orders/OrderDetailPage";
 import StockPage from "@/pages/stock/StockPage";
 import StockUpdatePage from "@/pages/stock/StockUpdatePage";
+import StockUpdateHistoryPage from "@/pages/stock/StockUpdateHistoryPage";
+import StockUpdateDetailPage from "@/pages/stock/StockUpdateDetailPage";
 import StockRequestPage from "@/pages/stock/StockRequestPage";
 import BusinessGroupsPage from "@/pages/businesses/BusinessGroupsPage";
 import BusinessGroupCreatePage from "@/pages/businesses/BusinessGroupCreatePage";
@@ -83,6 +85,8 @@ export default function App() {
             <Route path="/orders/:orderId" element={<OrderDetailPage />} />
             <Route path="/stock" element={<StockPage />} />
             <Route path="/stock/update" element={<StockUpdatePage />} />
+            <Route path="/stock/updates" element={<StockUpdateHistoryPage />} />
+            <Route path="/stock/updates/:batchId" element={<StockUpdateDetailPage />} />
             <Route path="/stock/request" element={<StockRequestPage />} />
             <Route path="/recycle-bin" element={<RecycleBinPage />} />
             <Route path="/products" element={<Navigate to="/catalog/products" replace />} />

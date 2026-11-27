@@ -468,6 +468,7 @@ export const api = {
       quantity?: number | string | null;
       packagingUnit?: string;
       unitPrice?: number | string | null;
+      costPrice?: number | string | null;
     }>;
   }) =>
     request<{

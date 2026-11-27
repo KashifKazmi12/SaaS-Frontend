@@ -419,8 +419,9 @@ export default function OrderCreatePage() {
   }
 
   function resetFormForNextOrder() {
+    const draft = newDraftItem();
     setCustomerName(DEFAULT_WALK_IN_CUSTOMER_NAME);
-    setItems([newDraftItem()]);
+    setItems([draft]);
     setFormValues(orderFormValues(schemaFields));
     setPaymentMethod(preferredPaymentMethod(portalPaymentMethods));
     setDiscountInput("");
@@ -429,12 +430,20 @@ export default function OrderCreatePage() {
     setStaffCodeError("");
     setError("");
     setMessage("");
+    return draft.key;
+  }
+
+  function focusFirstItemProduct(itemKey: string) {
+    // Beat dialog focus-restore which otherwise returns to business / last field.
+    window.setTimeout(() => focusAndRevealItemProduct(itemKey), 0);
+    window.setTimeout(() => focusAndRevealItemProduct(itemKey), 40);
   }
 
   function handleSuccessAddNew() {
     setSuccessOrder(null);
     setSuccessCheckoutUrl(null);
-    resetFormForNextOrder();
+    const itemKey = resetFormForNextOrder();
+    focusFirstItemProduct(itemKey);
   }
 
   function handleSuccessViewDetail() {
@@ -535,6 +544,7 @@ export default function OrderCreatePage() {
         ...entityPayload,
         ...staffCodePayload(resolvedStaffCode),
       });
+      resetFormForNextOrder();
       setSuccessOrder(order);
       setSuccessCheckoutUrl(order.checkoutUrl || null);
       setMessage("");
@@ -626,13 +636,16 @@ export default function OrderCreatePage() {
                       const product = productCache[item.productId];
                       const hasVariations = Boolean(product?.hasVariations);
                       const stockLabel = stockLeftLabel(product, item.variationId);
+                      const qty = Math.max(0, Number(item.quantity) || 0);
+                      const unitPrice = Math.max(0, Number(item.unitPrice) || 0);
+                      const lineTotal = qty * unitPrice;
                       return (
                         <div
                           key={item.key}
                           className={
                             hasVariations
-                              ? "grid gap-3 rounded-xl border p-3 sm:grid-cols-[1fr_1fr_90px_110px_auto]"
-                              : "grid gap-3 rounded-xl border p-3 sm:grid-cols-[1fr_90px_110px_auto]"
+                              ? "grid gap-2 rounded-xl border p-3 sm:grid-cols-[minmax(0,1.05fr)_minmax(0,0.85fr)_68px_84px_104px_auto] sm:items-start"
+                              : "grid gap-2 rounded-xl border p-3 sm:grid-cols-[minmax(0,1.2fr)_68px_84px_104px_auto] sm:items-start"
                           }
                           onKeyDown={(event) => handleItemRowKeyDown(event, item.key)}
                         >
@@ -723,6 +736,14 @@ export default function OrderCreatePage() {
                             placeholder={groupCurrency}
                             required={Boolean(item.productId)}
                             disabled={!item.productId || (hasVariations && !item.variationId)}
+                          />
+                          <FormField
+                            id={`line-total-${item.key}`}
+                            label="Total"
+                            value={item.productId ? formatMoney(lineTotal, groupCurrency) : ""}
+                            placeholder="—"
+                            readOnly
+                            tabIndex={-1}
                           />
                           <div className="flex items-end">
                             <PermissionIconButton

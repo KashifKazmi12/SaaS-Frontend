@@ -20,6 +20,7 @@ import { ImportWizard } from "@/components/import/ImportWizard";
 import { STOCK_IMPORT_FIELDS } from "@/components/import/importFields";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { EnumSelect } from "@/components/shared/EnumSelect";
 import { useBusinessOptions, useBusinessVisibility } from "@/hooks/useBusinessOptions";
@@ -110,6 +111,8 @@ export default function StockPage() {
   const [receiveQty, setReceiveQty] = useState("1");
   const [receiveUnit, setReceiveUnit] = useState("");
   const [receiving, setReceiving] = useState(false);
+  /** Cross-page selection: keep row snapshots so Update stock can open instantly. */
+  const [selectedMap, setSelectedMap] = useState<Map<string, StockRecord>>(() => new Map());
   const { options: businessOptions } = useBusinessOptions(isSuperAdmin ? "all" : "assigned");
   const listBusinessId = resolveListBusinessId(
     list.getFilter("businessId"),
@@ -121,9 +124,135 @@ export default function StockPage() {
     filterBusinessId === ALL_FILTER ? undefined : filterBusinessId
   );
   const editingBusinessId = crud.editing ? stockBusinessId(crud.editing) : "";
+  const selectedCount = selectedMap.size;
+  const pageIds = useMemo(() => items.map((row) => row._id), [items]);
+  const pageSelectedCount = useMemo(
+    () => pageIds.filter((id) => selectedMap.has(id)).length,
+    [pageIds, selectedMap]
+  );
+  const pageAllSelected = pageIds.length > 0 && pageSelectedCount === pageIds.length;
+  const pageSomeSelected = pageSelectedCount > 0 && !pageAllSelected;
+
+  // Refresh snapshots when the current page reloads (qty/price may have changed).
+  useEffect(() => {
+    if (!selectedMap.size || !items.length) return;
+    setSelectedMap((current) => {
+      let changed = false;
+      const next = new Map(current);
+      for (const row of items) {
+        if (!next.has(row._id)) continue;
+        next.set(row._id, row);
+        changed = true;
+      }
+      return changed ? next : current;
+    });
+  }, [items]);
+
+  function toggleRow(row: StockRecord, checked: boolean) {
+    setSelectedMap((current) => {
+      const next = new Map(current);
+      if (checked) next.set(row._id, row);
+      else next.delete(row._id);
+      return next;
+    });
+  }
+
+  function togglePage(checked: boolean) {
+    setSelectedMap((current) => {
+      const next = new Map(current);
+      for (const row of items) {
+        if (checked) next.set(row._id, row);
+        else next.delete(row._id);
+      }
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedMap(new Map());
+  }
+
+  function selectedPayloadOrError() {
+    if (selectedCount === 0) return { kind: "empty" as const };
+    const selected = [...selectedMap.values()];
+    const businessIds = [
+      ...new Set(selected.map((row) => stockBusinessId(row)).filter(Boolean)),
+    ];
+    if (businessIds.length > 1) {
+      crud.setError(
+        "Selected items must be from one business. Clear the selection or filter by business."
+      );
+      return { kind: "error" as const };
+    }
+    return {
+      kind: "ok" as const,
+      payload: {
+        businessId:
+          businessIds[0] ||
+          listBusinessId ||
+          stockBusinessId(selected[0]) ||
+          "",
+        items: selected,
+      },
+    };
+  }
+
+  function goToBulkUpdate() {
+    const result = selectedPayloadOrError();
+    if (result.kind === "error") return;
+    if (result.kind === "empty") {
+      navigate(`${MODULE_PATH}/update`);
+      return;
+    }
+    try {
+      sessionStorage.setItem("stock-update-prefill", JSON.stringify(result.payload));
+    } catch {
+      /* ignore quota / private mode */
+    }
+    navigate(`${MODULE_PATH}/update`, { state: result.payload });
+    clearSelection();
+  }
+
+  function goToStockRequest() {
+    const result = selectedPayloadOrError();
+    if (result.kind === "error") return;
+    if (result.kind === "empty") {
+      navigate(`${MODULE_PATH}/request`);
+      return;
+    }
+    try {
+      sessionStorage.setItem("stock-request-prefill", JSON.stringify(result.payload));
+    } catch {
+      /* ignore quota / private mode */
+    }
+    navigate(`${MODULE_PATH}/request`, { state: result.payload });
+    clearSelection();
+  }
 
   const columns = useMemo(
     () => [
+      {
+        id: "select",
+        header: (
+          <Checkbox
+            checked={pageAllSelected}
+            indeterminate={pageSomeSelected}
+            aria-label="Select all on this page"
+            onCheckedChange={(value) => togglePage(value === true)}
+          />
+        ),
+        headerClassName: "w-10 pr-0",
+        cellClassName: "w-10 pr-0",
+        mobile: { role: "badge" as const },
+        cell: (row: StockRecord) => (
+          <Checkbox
+            checked={selectedMap.has(row._id)}
+            aria-label={`Select ${stockProductName(row)}`}
+            onCheckedChange={(value) => toggleRow(row, value === true)}
+            onClick={(event) => event.stopPropagation()}
+          />
+        ),
+      },
       textColumn<StockRecord>("product", "Product", stockProductName, { primary: true }),
       textColumn<StockRecord>("variation", "Variation", stockVariationName),
       textColumn<StockRecord>("sku", "SKU", (row) => row.sku),
@@ -148,7 +277,7 @@ export default function StockPage() {
         cell: (row: StockRecord) => <StockLevelBadge level={row.stockLevel} />,
       },
     ],
-    [listCustomFields, showBusinessColumn]
+    [listCustomFields, showBusinessColumn, selectedMap, pageAllSelected, pageSomeSelected, items]
   );
 
   async function loadStock() {
@@ -286,20 +415,6 @@ export default function StockPage() {
           }
           headerActions={
             <>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => navigate(MODULE_PATHS.CATALOG_RAW_MATERIALS)}
-              >
-                Raw materials
-              </Button>
-              <PermissionButton
-                modulePath={MODULE_PATH}
-                action="update"
-                onClick={() => navigate(`${MODULE_PATH}/update`)}
-              >
-                Update stock
-              </PermissionButton>
               <PermissionButton
                 modulePath={MODULE_PATH}
                 action="create"
@@ -307,6 +422,24 @@ export default function StockPage() {
                 onClick={() => setImportOpen(true)}
               >
                 Import
+              </PermissionButton>
+              <PermissionButton
+                modulePath={MODULE_PATH}
+                action="update"
+                onClick={goToBulkUpdate}
+              >
+                {selectedCount > 0
+                  ? `Update stock (${selectedCount} selected)`
+                  : "Update stock"}
+              </PermissionButton>
+              <PermissionButton
+                modulePath={MODULE_PATH}
+                action="view"
+                onClick={goToStockRequest}
+              >
+                {selectedCount > 0
+                  ? `Request stock (${selectedCount} selected)`
+                  : "Request stock"}
               </PermissionButton>
             </>
           }
@@ -362,6 +495,8 @@ export default function StockPage() {
               totalPages={totalPages}
               onPageChange={list.setPage}
               onLimitChange={list.setLimit}
+              selectedCount={selectedCount}
+              onClearSelection={selectedCount > 0 ? clearSelection : undefined}
             />
           }
         />

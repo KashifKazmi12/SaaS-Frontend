@@ -36,7 +36,7 @@ export function StockItemSelect({
   selectedStock = null,
   onSelect,
   label = "Product",
-  placeholder = "Search product or SKU",
+  placeholder = "Search product",
   id = "stock-item-select",
   required = false,
   disabled = false,
@@ -91,6 +91,10 @@ export function StockItemSelect({
         setLoadingMore(true);
       } else {
         setLoading(true);
+        // Drop stale page so typing doesn't keep showing the previous A–Z list.
+        setItems([]);
+        setPage(1);
+        setTotalPages(1);
       }
       setError("");
       try {
@@ -98,7 +102,7 @@ export function StockItemSelect({
           businessId,
           page: nextPage,
           limit: PAGE_SIZE,
-          search,
+          search: search || undefined,
           status: "active",
         });
         if (requestId !== requestIdRef.current) return;
@@ -231,7 +235,7 @@ export function StockItemSelect({
               onEnterWhenClosed();
             }}
           />
-          <ComboboxContent>
+          <ComboboxContent className="min-w-[min(22rem,var(--available-width))] w-[min(28rem,var(--available-width))]">
             <ComboboxEmpty>
               {loading ? "Loading…" : error || "No products found."}
             </ComboboxEmpty>
@@ -243,12 +247,13 @@ export function StockItemSelect({
                 const sale = Number(stock?.price) || 0;
                 const cost = Number(stock?.costPrice) || 0;
                 return (
-                  <ComboboxItem key={itemId} value={itemId}>
-                    <span className="flex min-w-0 flex-1 items-center justify-between gap-3 pr-1">
-                      <span className="min-w-0 truncate">{labelById[itemId] ?? itemId}</span>
-                      <span className="shrink-0 text-xs tabular-nums whitespace-nowrap">
-                        <span className="text-muted-foreground">Sal</span> {money(sale)}
-                        <span className="text-muted-foreground"> · Cost</span> {money(cost)}
+                  <ComboboxItem key={itemId} value={itemId} className="items-start py-1.5">
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5 pr-1">
+                      <span className="leading-snug break-words">
+                        {labelById[itemId] ?? itemId}
+                      </span>
+                      <span className="text-muted-foreground text-xs tabular-nums">
+                        Sal {money(sale)} · Cost {money(cost)}
                       </span>
                     </span>
                   </ComboboxItem>

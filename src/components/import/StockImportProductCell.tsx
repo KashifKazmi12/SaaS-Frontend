@@ -265,7 +265,7 @@ export function StockImportProductCell({
       <ComboboxInput
         aria-label={ariaLabel}
         aria-invalid={invalid || undefined}
-        placeholder="Search name or SKU"
+        placeholder="Search product name"
         className={cn(
           "h-7 min-w-[160px] w-full text-xs",
           invalid && "border-destructive ring-1 ring-destructive/50"

@@ -10,6 +10,9 @@ interface ListPaginationProps {
   totalPages: number;
   onPageChange: (page: number) => void;
   onLimitChange: (limit: number) => void;
+  /** Cross-page selection count (e.g. stock bulk update). */
+  selectedCount?: number;
+  onClearSelection?: () => void;
 }
 
 export function ListPagination({
@@ -19,6 +22,8 @@ export function ListPagination({
   totalPages,
   onPageChange,
   onLimitChange,
+  selectedCount = 0,
+  onClearSelection,
 }: ListPaginationProps) {
   if (total === 0) return null;
 
@@ -29,6 +34,25 @@ export function ListPagination({
     <div className="flex flex-col gap-3 border-t border-border/40 pt-3 sm:flex-row sm:items-center sm:justify-between">
       <p className="text-xs text-muted-foreground">
         Showing {from}–{to} of {total}
+        {selectedCount > 0 ? (
+          <>
+            {" "}
+            · {selectedCount} selected
+            {onClearSelection ? (
+              <>
+                {" "}
+                ·{" "}
+                <button
+                  type="button"
+                  className="text-foreground underline-offset-2 hover:underline"
+                  onClick={onClearSelection}
+                >
+                  Clear
+                </button>
+              </>
+            ) : null}
+          </>
+        ) : null}
       </p>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">

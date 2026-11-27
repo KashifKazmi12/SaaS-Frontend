@@ -516,7 +516,7 @@ export default function ProductsPage() {
             <ListFilters
               search={list.searchInput}
               onSearchChange={list.setSearchInput}
-              searchPlaceholder="Search name, SKU, or barcode..."
+              searchPlaceholder="Search by name..."
               activeCount={list.activeCount}
               onClear={list.clearFilters}
             >
